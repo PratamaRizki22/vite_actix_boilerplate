@@ -10,7 +10,6 @@ pub struct Post {
 
 #[derive(Debug, Deserialize)]
 pub struct CreatePost {
-    pub user_id: i32,
     pub title: String,
     pub content: String,
 }

@@ -1,65 +1,209 @@
-use actix_web::{web, HttpResponse};
+use actix_web::{web, HttpResponse, Result};
 use sqlx::PgPool;
-use crate::models::user::{User, CreateUser};
 
-pub async fn get_all(pool: web::Data<PgPool>) -> HttpResponse {
-    let users = sqlx::query_as!(User, "Select id, username, email From users")
-        .fetch_all(pool.get_ref())
-        .await;
+use crate::models::user::{User, CreateUser, UpdateUser, UserResponse};
+use crate::auth::auth_utils::AuthUtils;
+use crate::middleware::auth::get_current_user;
 
-    match users {
-        Ok(data) => HttpResponse::Ok().json(data),
-        Err(e) => HttpResponse::InternalServerError().json(format!("error: {}", e)),
-    }
+pub async fn get_users(pool: web::Data<PgPool>) -> Result<HttpResponse> {
+    let users = sqlx::query_as!(
+        User,
+        "SELECT id, username, email, password, role, created_at, updated_at FROM users"
+    )
+    .fetch_all(pool.get_ref())
+    .await
+
+    .map_err(|_| actix_web::error::ErrorInternalServerError("Database error"))?;
+
+    let user_responses: Vec<UserResponse> = users.into_iter().map(UserResponse::from).collect();
+
+    Ok(HttpResponse::Ok().json(user_responses))
 }
 
-pub async fn get_by_id(
-    pool: web::Data<PgPool>,
-    id: web::Path<i32>,
-) -> HttpResponse {
+pub async fn get_user(path: web::Path<i32>, pool: web::Data<PgPool>) -> Result<HttpResponse> {
+    let user_id = path.into_inner();
+    
     let user = sqlx::query_as!(
         User,
-        "SELECT id, username, email FROM users WHERE id = $1",
-        *id
+        "SELECT id, username, email, password, role, created_at, updated_at FROM users WHERE id = $1",
+        user_id
     )
-    .fetch_one(pool.get_ref())
-    .await;
+    .fetch_optional(pool.get_ref())
+    .await
+    .map_err(|_| actix_web::error::ErrorInternalServerError("Database error"))?;
 
     match user {
-        Ok(data) => HttpResponse::Ok().json(data),
-        Err(_) => HttpResponse::NotFound().json("User not found"),
+        Some(user) => Ok(HttpResponse::Ok().json(UserResponse::from(user))),
+        None => Ok(HttpResponse::NotFound().json(serde_json::json!({
+            "error": "User not found"
+        }))),
     }
 }
 
-pub async fn create(
+pub async fn create_user(
     pool: web::Data<PgPool>,
-    user: web::Json<CreateUser>,
-) -> HttpResponse {
-    let result = sqlx::query_as!(
+    user_data: web::Json<CreateUser>,
+) -> Result<HttpResponse> {
+    let role = user_data.role.as_deref().unwrap_or("user");
+
+    // Hash password before storing
+    let hashed_password = AuthUtils::hash_password(&user_data.password)
+        .map_err(|_| actix_web::error::ErrorInternalServerError("Password hashing failed"))?;
+
+    let user = sqlx::query_as!(
         User,
-        "INSERT INTO users (username, email) VALUES ($1, $2) RETURNING id, username, email",
-        user.username,
-        user.email
+        "INSERT INTO users (username, email, password, role)
+         VALUES ($1, $2, $3, $4)
+         RETURNING id, username, email, password, role, created_at, updated_at",
+        user_data.username,
+        user_data.email,
+        hashed_password,
+        role
     )
     .fetch_one(pool.get_ref())
-    .await;
-    
-    match result {
-        Ok(data) => HttpResponse::Created().json(data),
-        Err(e) => HttpResponse::InternalServerError().json(format!("Error: {}", e)),
+    .await
+    .map_err(|err| {
+        if let sqlx::Error::Database(db_err) = &err {
+            if db_err.constraint().is_some() {
+                return actix_web::error::ErrorBadRequest("Username or email already exists");
+            }
+        }
+        actix_web::error::ErrorInternalServerError("Database error")
+    })?;
+
+    Ok(HttpResponse::Created().json(UserResponse::from(user)))
+}
+
+pub async fn update_user(
+    req: actix_web::HttpRequest,
+    path: web::Path<i32>,
+    pool: web::Data<PgPool>,
+    user_data: web::Json<UpdateUser>,
+) -> Result<HttpResponse> {
+    let user_id = path.into_inner();
+    let current_user = get_current_user(&req)
+        .ok_or_else(|| actix_web::error::ErrorUnauthorized("Not authenticated"))?;
+
+    // Check if user can update (owner or admin)
+    if !AuthUtils::can_access_resource(current_user.sub, user_id, &current_user.role) {
+        return Ok(HttpResponse::Forbidden().json(serde_json::json!({
+            "error": "Insufficient permissions"
+        })));
+    }
+
+    // Update user with provided fields
+    let mut has_updates = false;
+
+    // Update username if provided
+    if let Some(username) = &user_data.username {
+        sqlx::query!(
+            "UPDATE users SET username = $1, updated_at = NOW() WHERE id = $2",
+            username,
+            user_id
+        )
+        .execute(pool.get_ref())
+        .await
+        .map_err(|_| actix_web::error::ErrorInternalServerError("Database error"))?;
+        has_updates = true;
+    }
+
+    // Update email if provided
+    if let Some(email) = &user_data.email {
+        sqlx::query!(
+            "UPDATE users SET email = $1, updated_at = NOW() WHERE id = $2",
+            email,
+            user_id
+        )
+        .execute(pool.get_ref())
+        .await
+        .map_err(|_| actix_web::error::ErrorInternalServerError("Database error"))?;
+        has_updates = true;
+    }
+
+    // Update password if provided
+    if let Some(password) = &user_data.password {
+        let hashed_password = AuthUtils::hash_password(password)
+            .map_err(|_| actix_web::error::ErrorInternalServerError("Password hashing failed"))?;
+        sqlx::query!(
+            "UPDATE users SET password = $1, updated_at = NOW() WHERE id = $2",
+            hashed_password,
+            user_id
+        )
+        .execute(pool.get_ref())
+        .await
+        .map_err(|_| actix_web::error::ErrorInternalServerError("Database error"))?;
+        has_updates = true;
+    }
+
+    // Update role if provided (admin only)
+    if let Some(role) = &user_data.role {
+        if current_user.role != "admin" {
+            return Ok(HttpResponse::Forbidden().json(serde_json::json!({
+                "error": "Only admins can update roles"
+            })));
+        }
+        sqlx::query!(
+            "UPDATE users SET role = $1, updated_at = NOW() WHERE id = $2",
+            role,
+            user_id
+        )
+        .execute(pool.get_ref())
+        .await
+        .map_err(|_| actix_web::error::ErrorInternalServerError("Database error"))?;
+        has_updates = true;
+    }
+
+    if !has_updates {
+        return Ok(HttpResponse::BadRequest().json(serde_json::json!({
+            "error": "No fields to update"
+        })));
+    }
+
+    // Get updated user
+    let user = sqlx::query_as!(
+        User,
+        "SELECT id, username, email, password, role, created_at, updated_at 
+         FROM users WHERE id = $1",
+        user_id
+    )
+    .fetch_optional(pool.get_ref())
+    .await
+    .map_err(|_| actix_web::error::ErrorInternalServerError("Database error"))?;
+
+    match user {
+        Some(user) => Ok(HttpResponse::Ok().json(UserResponse::from(user))),
+        None => Ok(HttpResponse::NotFound().json(serde_json::json!({
+            "error": "User not found"
+        }))),
     }
 }
 
-pub async fn delete(
+pub async fn delete_user(
+    req: actix_web::HttpRequest,
+    path: web::Path<i32>,
     pool: web::Data<PgPool>,
-    id: web::Path<i32>,
-) -> HttpResponse {
-    let result = sqlx::query!("DELETE FROM users WHERE id = $1", *id)
+) -> Result<HttpResponse> {
+    let user_id = path.into_inner();
+    let current_user = get_current_user(&req)
+        .ok_or_else(|| actix_web::error::ErrorUnauthorized("Not authenticated"))?;
+
+    // Check if user can delete (owner or admin)
+    if !AuthUtils::can_access_resource(current_user.sub, user_id, &current_user.role) {
+        return Ok(HttpResponse::Forbidden().json(serde_json::json!({
+            "error": "Insufficient permissions"
+        })));
+    }
+
+    let result = sqlx::query!("DELETE FROM users WHERE id = $1", user_id)
         .execute(pool.get_ref())
-        .await;
-    
-    match result {
-        Ok(_) => HttpResponse::Ok().json("User deleted"),
-        Err(e) => HttpResponse::InternalServerError().json(format!("Error: {}", e)),
+        .await
+        .map_err(|_| actix_web::error::ErrorInternalServerError("Database error"))?;
+
+    if result.rows_affected() > 0 {
+        Ok(HttpResponse::NoContent().finish())
+    } else {
+        Ok(HttpResponse::NotFound().json(serde_json::json!({
+            "error": "User not found"
+        })))
     }
 }
