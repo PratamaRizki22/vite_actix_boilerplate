@@ -1,35 +1,33 @@
 import { useState } from 'react'
-import PostList from '../components/posts/PostList'
-import PostForm from '../components/posts/PostForm'
+import PostList from '../components/lists/PostList'
+import PostForm from '../components/forms/PostForm'
+import Button from '../components/common/Button'
+import Card from '../components/common/Card'
+import PageContainer from '../components/layout/PageContainer'
 
 const PostsPage = () => {
   const [showForm, setShowForm] = useState(false)
 
   return (
-    <div>
-      <div style={{ 
-        display: 'flex', 
-        justifyContent: 'space-between', 
-        alignItems: 'center', 
-        marginBottom: '20px' 
-      }}>
-        <h2>Post Management</h2>
-        <button 
-          className="btn btn-primary"
+    <PageContainer
+      title="Post Management"
+      action={
+        <Button 
+          variant={showForm ? 'secondary' : 'primary'}
           onClick={() => setShowForm(!showForm)}
         >
           {showForm ? 'Cancel' : 'Create New Post'}
-        </button>
-      </div>
-
+        </Button>
+      }
+    >
       {showForm && (
-        <div className="card">
+        <Card>
           <PostForm onSuccess={() => setShowForm(false)} />
-        </div>
+        </Card>
       )}
 
       <PostList />
-    </div>
+    </PageContainer>
   )
 }
 

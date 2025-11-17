@@ -1,26 +1,32 @@
 import { Link } from 'react-router-dom'
+import Button from '../components/common/Button'
+import Card from '../components/common/Card'
 
 const HomePage = () => {
   return (
-    <div className="card">
-      <h2>Welcome to Wallet Core App</h2>
-      <p>This is a boilerplate with React Router setup for future scalability.</p>
+    <Card>
+      <h2 className="text-2xl font-bold mb-4">Welcome to Wallet Core App</h2>
+      <p className="text-gray-600 mb-6">This is a boilerplate with React Router setup for future scalability.</p>
       
-      <div style={{ marginTop: '20px' }}>
-        <h3>Quick Links:</h3>
-        <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
-          <Link to="/users" className="btn btn-primary" style={{ textDecoration: 'none' }}>
-            Manage Users
+      <div className="mb-6">
+        <h3 className="text-lg font-semibold mb-3">Quick Links:</h3>
+        <div className="flex gap-3">
+          <Link to="/users">
+            <Button variant="primary">
+              Manage Users
+            </Button>
           </Link>
-          <Link to="/posts" className="btn btn-primary" style={{ textDecoration: 'none' }}>
-            Manage Posts
+          <Link to="/posts">
+            <Button variant="primary">
+              Manage Posts
+            </Button>
           </Link>
         </div>
       </div>
 
-      <div style={{ marginTop: '30px' }}>
-        <h4>Features:</h4>
-        <ul>
+      <div>
+        <h4 className="text-md font-semibold mb-2">Features:</h4>
+        <ul className="list-disc list-inside space-y-1 text-gray-700">
           <li>React Router for navigation</li>
           <li>Axios for API calls</li>
           <li>Custom hooks for state management</li>
@@ -28,7 +34,7 @@ const HomePage = () => {
           <li>Ready for Context API when needed</li>
         </ul>
       </div>
-    </div>
+    </Card>
   )
 }
 

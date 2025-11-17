@@ -1,30 +1,33 @@
 import { useState } from 'react'
-import UserList from '../components/users/UserList'
-import UserForm from '../components/users/UserForm'
+import UserList from '../components/lists/UserList'
+import UserForm from '../components/forms/UserForm'
+import Button from '../components/common/Button'
+import Card from '../components/common/Card'
+import PageContainer from '../components/layout/PageContainer'
 
 const UsersPage = () => {
   const [showForm, setShowForm] = useState(false)
 
   return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-        <h2>User Management</h2>
-        <button 
-          className="btn btn-primary"
+    <PageContainer
+      title="User Management"
+      action={
+        <Button 
+          variant={showForm ? 'secondary' : 'primary'}
           onClick={() => setShowForm(!showForm)}
         >
           {showForm ? 'Cancel' : 'Add New User'}
-        </button>
-      </div>
-
+        </Button>
+      }
+    >
       {showForm && (
-        <div className="card">
+        <Card>
           <UserForm onSuccess={() => setShowForm(false)} />
-        </div>
+        </Card>
       )}
 
       <UserList />
-    </div>
+    </PageContainer>
   )
 }
 

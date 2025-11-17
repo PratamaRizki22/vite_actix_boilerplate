@@ -1,10 +1,12 @@
 import { useUsers } from '../../hooks/useUsers'
+import Button from '../common/Button'
+import Card from '../common/Card'
 
 const UserList = () => {
   const { users, loading, error, deleteUser } = useUsers()
 
-  if (loading) return <div className="card">Loading users...</div>
-  if (error) return <div className="card" style={{ color: 'red' }}>Error: {error}</div>
+  if (loading) return <Card>Loading users...</Card>
+  if (error) return <Card className="text-red-500">Error: {error}</Card>
 
   const handleDelete = async (id) => {
     if (window.confirm('Are you sure you want to delete this user?')) {
@@ -19,22 +21,22 @@ const UserList = () => {
   return (
     <div>
       {users.length === 0 ? (
-        <div className="card">No users found</div>
+        <Card>No users found</Card>
       ) : (
         users.map(user => (
-          <div key={user.id} className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Card key={user.id} className="flex justify-between items-center">
             <div>
-              <h3>{user.username}</h3>
-              <p>Email: {user.email}</p>
-              <small>ID: {user.id}</small>
+              <h3 className="text-lg font-semibold">{user.username}</h3>
+              <p className="text-gray-600">Email: {user.email}</p>
+              <small className="text-gray-500">ID: {user.id}</small>
             </div>
-            <button 
-              className="btn btn-danger"
+            <Button 
+              variant="danger"
               onClick={() => handleDelete(user.id)}
             >
               Delete
-            </button>
-          </div>
+            </Button>
+          </Card>
         ))
       )}
     </div>
