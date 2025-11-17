@@ -11,6 +11,9 @@ pub fn config(cfg: &mut web::ServiceConfig) {
             .service(
                 web::scope("/auth")
                     .route("/login", web::post().to(auth::login))
+                    .route("/register", web::post().to(auth::register))
+                    .route("/setup-2fa", web::post().to(auth::setup_2fa).wrap(AuthMiddleware::new()))
+                    .route("/verify-2fa", web::post().to(auth::verify_2fa).wrap(AuthMiddleware::new()))
                     .route("/logout", web::post().to(auth::logout).wrap(AuthMiddleware::new()))
                     .route("/me", web::get().to(auth::me).wrap(AuthMiddleware::new()))
             )

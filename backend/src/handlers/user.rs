@@ -162,7 +162,7 @@ pub async fn update_user(
     // Get updated user
     let user = sqlx::query_as!(
         User,
-        "SELECT id, username, email, password, role, created_at, updated_at 
+        "SELECT id, username, email, password, role, created_at, updated_at
          FROM users WHERE id = $1",
         user_id
     )
