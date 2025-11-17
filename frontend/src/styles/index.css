@@ -1,0 +1,15 @@
+/* Tambahkan di bagian Utility classes */
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+a:hover {
+  color: inherit;
+}
+
+/* Style untuk Link yang terlihat seperti button */
+a.btn {
+  display: inline-block;
+  text-align: center;
+}
