@@ -1,9 +1,12 @@
-use actix_web::{web, HttpResponse, Result};
-use sqlx::PgPool;
-use crate::models::post::{Post, CreatePost};
 use crate::middleware::auth::get_current_user;
+use crate::models::post::{CreatePost, Post};
+use actix_web::{HttpResponse, Result, web};
+use sqlx::PgPool;
 
-pub async fn get_posts(pool: web::Data<PgPool>, req: actix_web::HttpRequest) -> Result<HttpResponse> {
+pub async fn get_posts(
+    pool: web::Data<PgPool>,
+    req: actix_web::HttpRequest,
+) -> Result<HttpResponse> {
     let current_user = get_current_user(&req)
         .ok_or_else(|| actix_web::error::ErrorUnauthorized("Not authenticated"))?;
 
@@ -22,7 +25,7 @@ pub async fn get_posts(pool: web::Data<PgPool>, req: actix_web::HttpRequest) -> 
 pub async fn create_post(
     pool: web::Data<PgPool>,
     post_data: web::Json<CreatePost>,
-    req: actix_web::HttpRequest
+    req: actix_web::HttpRequest,
 ) -> Result<HttpResponse> {
     let current_user = get_current_user(&req)
         .ok_or_else(|| actix_web::error::ErrorUnauthorized("Not authenticated"))?;
@@ -45,7 +48,7 @@ pub async fn create_post(
 pub async fn get_post(
     pool: web::Data<PgPool>,
     path: web::Path<i32>,
-    req: actix_web::HttpRequest
+    req: actix_web::HttpRequest,
 ) -> Result<HttpResponse> {
     let current_user = get_current_user(&req)
         .ok_or_else(|| actix_web::error::ErrorUnauthorized("Not authenticated"))?;
@@ -74,7 +77,7 @@ pub async fn update_post(
     pool: web::Data<PgPool>,
     path: web::Path<i32>,
     post_data: web::Json<CreatePost>,
-    req: actix_web::HttpRequest
+    req: actix_web::HttpRequest,
 ) -> Result<HttpResponse> {
     let current_user = get_current_user(&req)
         .ok_or_else(|| actix_web::error::ErrorUnauthorized("Not authenticated"))?;
@@ -106,7 +109,7 @@ pub async fn update_post(
 pub async fn delete_post(
     pool: web::Data<PgPool>,
     path: web::Path<i32>,
-    req: actix_web::HttpRequest
+    req: actix_web::HttpRequest,
 ) -> Result<HttpResponse> {
     let current_user = get_current_user(&req)
         .ok_or_else(|| actix_web::error::ErrorUnauthorized("Not authenticated"))?;

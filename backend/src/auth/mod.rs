@@ -1,3 +1,6 @@
-pub mod auth_handlers;
-pub mod auth_models;
-pub mod auth_utils;
+pub mod account;
+pub mod email;
+pub mod password;
+pub mod security;
+pub mod traditional;
+pub mod web3;

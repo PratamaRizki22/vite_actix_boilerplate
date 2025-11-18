@@ -19,3 +19,9 @@ futures-util = "0.3"
 totp-rs = { version = "5.4", features = ["qr"] }
 rand = "0.8"
 base32 = "0.4"
+ethers = "2.0.14"
+lazy_static = "1.5.0"
+hex = "0.4.3"
+reqwest = { version = "0.11", features = ["json"] }
+lettre = { version = "0.11", features = ["smtp-transport", "builder", "tokio1-native-tls"] }
+sha2 = "0.10"

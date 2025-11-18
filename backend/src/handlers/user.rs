@@ -1,14 +1,14 @@
-use actix_web::{web, HttpResponse, Result};
+use actix_web::{HttpResponse, Result, web};
 use sqlx::PgPool;
 
-use crate::models::user::{User, CreateUser, UpdateUser, UserResponse};
-use crate::auth::auth_utils::AuthUtils;
 use crate::middleware::auth::get_current_user;
+use crate::models::user::{CreateUser, UpdateUser, User, UserResponse};
+use crate::utils::auth::AuthUtils;
 
 pub async fn get_users(pool: web::Data<PgPool>) -> Result<HttpResponse> {
     let users = sqlx::query_as!(
         User,
-        "SELECT id, username, email, password, role, created_at, updated_at FROM users"
+        "SELECT id, username, email, password, role, wallet_address, email_verified, created_at, updated_at FROM users"
     )
     .fetch_all(pool.get_ref())
     .await
@@ -22,10 +22,10 @@ pub async fn get_users(pool: web::Data<PgPool>) -> Result<HttpResponse> {
 
 pub async fn get_user(path: web::Path<i32>, pool: web::Data<PgPool>) -> Result<HttpResponse> {
     let user_id = path.into_inner();
-    
+
     let user = sqlx::query_as!(
         User,
-        "SELECT id, username, email, password, role, created_at, updated_at FROM users WHERE id = $1",
+        "SELECT id, username, email, password, role, wallet_address, email_verified, created_at, updated_at FROM users WHERE id = $1",
         user_id
     )
     .fetch_optional(pool.get_ref())
@@ -52,9 +52,9 @@ pub async fn create_user(
 
     let user = sqlx::query_as!(
         User,
-        "INSERT INTO users (username, email, password, role)
-         VALUES ($1, $2, $3, $4)
-         RETURNING id, username, email, password, role, created_at, updated_at",
+        "INSERT INTO users (username, email, password, role, email_verified)
+         VALUES ($1, $2, $3, $4, false)
+         RETURNING id, username, email, password, role, wallet_address, email_verified, created_at, updated_at",
         user_data.username,
         user_data.email,
         hashed_password,
@@ -162,7 +162,7 @@ pub async fn update_user(
     // Get updated user
     let user = sqlx::query_as!(
         User,
-        "SELECT id, username, email, password, role, created_at, updated_at
+        "SELECT id, username, email, password, role, wallet_address, email_verified, created_at, updated_at
          FROM users WHERE id = $1",
         user_id
     )

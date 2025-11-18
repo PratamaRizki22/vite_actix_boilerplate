@@ -1,15 +1,15 @@
+use actix_web::dev::{Service, Transform, forward_ready};
 use actix_web::{
-    dev::{ServiceRequest, ServiceResponse},
     Error, HttpMessage, Result,
+    dev::{ServiceRequest, ServiceResponse},
 };
-use actix_web::dev::{forward_ready, Service, Transform};
-use futures_util::future::{ready, Ready};
+use futures_util::future::{Ready, ready};
 use std::future::Future;
 use std::pin::Pin;
 use std::rc::Rc;
 
-use crate::auth::auth_utils::{AuthUtils, AuthError};
-use crate::auth::auth_models::Claims;
+use crate::models::auth::Claims;
+use crate::utils::auth::{AuthError, AuthUtils};
 
 pub struct AuthMiddleware {
     pub required_role: Option<String>,
@@ -17,7 +17,9 @@ pub struct AuthMiddleware {
 
 impl AuthMiddleware {
     pub fn new() -> Self {
-        Self { required_role: None }
+        Self {
+            required_role: None,
+        }
     }
 
     pub fn require_role(role: &str) -> Self {
@@ -87,13 +89,10 @@ where
             let token = AuthUtils::extract_token_from_header(auth_header)
                 .map_err(|_| actix_web::error::ErrorUnauthorized("Invalid token format"))?;
 
-            let claims = AuthUtils::validate_token(token, jwt_secret)
-                .map_err(|err| match err {
-                    AuthError::TokenExpired => {
-                        actix_web::error::ErrorUnauthorized("Token expired")
-                    }
-                    _ => actix_web::error::ErrorUnauthorized("Invalid token"),
-                })?;
+            let claims = AuthUtils::validate_token(token, jwt_secret).map_err(|err| match err {
+                AuthError::TokenExpired => actix_web::error::ErrorUnauthorized("Token expired"),
+                _ => actix_web::error::ErrorUnauthorized("Invalid token"),
+            })?;
 
             // Check role if required
             if let Some(required) = &required_role {

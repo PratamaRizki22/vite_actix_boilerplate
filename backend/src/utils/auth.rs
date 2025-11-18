@@ -1,8 +1,8 @@
-use bcrypt::{hash, verify, DEFAULT_COST};
+use bcrypt::{DEFAULT_COST, hash, verify};
 use chrono::{Duration, Utc};
-use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation, Algorithm};
+use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode};
 
-use crate::auth::auth_models::Claims;
+use crate::models::auth::Claims;
 
 #[derive(Debug)]
 pub enum AuthError {
@@ -69,7 +69,7 @@ impl AuthUtils {
     /// Validate JWT token and extract claims
     pub fn validate_token(token: &str, secret: &str) -> Result<Claims, AuthError> {
         let validation = Validation::new(Algorithm::HS256);
-        
+
         let token_data = decode::<Claims>(
             token,
             &DecodingKey::from_secret(secret.as_ref()),

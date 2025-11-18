@@ -1,24 +1,23 @@
-mod models;
-mod handlers;
-mod routes;
-mod utils;
-mod middleware;
 mod auth;
+mod handlers;
+mod middleware;
+mod models;
+mod routes;
+mod services;
+mod utils;
 
-
-use actix_web::{App, HttpServer};
-use actix_web::middleware::Logger;
 use actix_cors::Cors;
-use sqlx::postgres::PgPoolOptions;
+use actix_web::middleware::Logger;
+use actix_web::{App, HttpServer};
 use dotenvy::dotenv;
+use sqlx::postgres::PgPoolOptions;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     dotenv().ok();
     env_logger::init();
 
-    let database_url = std::env::var("DATABASE_URL")
-        .expect("DATABASE_URL must be set");
+    let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
 
     let jwt_secret = std::env::var("JWT_SECRET")
         .unwrap_or_else(|_| "default-secret-key-change-in-production".to_string());
@@ -31,7 +30,7 @@ async fn main() -> std::io::Result<()> {
 
     HttpServer::new(move || {
         let cors = Cors::default()
-            .allowed_origin("http://localhost:5173")  
+            .allowed_origin("http://localhost:5173")
             .allowed_methods(vec!["GET", "POST", "PUT", "DELETE"])
             .allowed_headers(vec![
                 actix_web::http::header::CONTENT_TYPE,
