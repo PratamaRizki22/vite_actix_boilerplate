@@ -83,6 +83,40 @@ impl AuthUtils {
         Ok(token_data.claims)
     }
 
+    /// Validate token without checking expiry (for blacklisting)
+    pub fn validate_token_without_expiry(token: &str) -> Result<Claims, AuthError> {
+        // For blacklisting, we need to extract claims without validating expiry
+        // We'll decode the JWT payload directly using base64
+        let parts: Vec<&str> = token.split('.').collect();
+        if parts.len() != 3 {
+            return Err(AuthError::InvalidToken);
+        }
+
+        use base64::{engine::general_purpose::STANDARD_NO_PAD, Engine};
+        
+        // Decode payload (second part)
+        // Note: JWT uses base64url without padding, so add padding if needed
+        let payload_part = parts[1];
+        let padded = format!("{}{}",
+            payload_part,
+            "=".repeat((4 - payload_part.len() % 4) % 4)
+        );
+
+        let payload = STANDARD_NO_PAD
+            .decode(&payload_part)
+            .or_else(|_| {
+                // If STANDARD_NO_PAD fails, try with padding using STANDARD
+                use base64::engine::general_purpose::STANDARD;
+                STANDARD.decode(&padded)
+            })
+            .map_err(|_| AuthError::InvalidToken)?;
+
+        let claims: Claims = serde_json::from_slice(&payload)
+            .map_err(|_| AuthError::InvalidToken)?;
+
+        Ok(claims)
+    }
+
     /// Extract token from Authorization header
     pub fn extract_token_from_header(auth_header: &str) -> Result<&str, AuthError> {
         if auth_header.starts_with("Bearer ") {

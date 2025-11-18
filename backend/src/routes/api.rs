@@ -1,6 +1,7 @@
 use actix_web::web;
 
 use crate::auth::account::{add_email, connect_wallet, get_sessions, logout_all_sessions, logout_other_sessions, logout_session};
+use crate::auth::debug::{blacklist_stats, cleanup_blacklist};
 use crate::auth::email::{debug_codes, send_verification, verify_email};
 use crate::auth::password::{request_password_reset, reset_password, debug_password_reset_tokens, test_email_service, get_rate_limit_stats};
 use crate::auth::security::{setup_2fa, verify_2fa};
@@ -51,6 +52,8 @@ pub fn config(cfg: &mut web::ServiceConfig) {
                     .route("/password/debug-tokens", web::get().to(debug_password_reset_tokens))
                     .route("/password/test-email", web::get().to(test_email_service))
                     .route("/rate-limit-stats", web::get().to(get_rate_limit_stats))
+                    .route("/debug/blacklist/stats", web::get().to(blacklist_stats))
+                    .route("/debug/blacklist/cleanup", web::post().to(cleanup_blacklist))
                     // Session management endpoints
                     .route("/sessions", web::get().to(get_sessions).wrap(AuthMiddleware::new()))
                     .route("/sessions/{id}", web::delete().to(logout_session).wrap(AuthMiddleware::new()))

@@ -8,6 +8,7 @@ use crate::models::auth::{LoginRequest, LoginResponse, RegisterRequest};
 use crate::models::user::{User, UserResponse};
 use crate::services::email_service::EmailService;
 use crate::services::session_manager::{SessionManager, CreateSessionData};
+use crate::services::token_blacklist::TokenBlacklist;
 use crate::utils::auth::AuthUtils;
 
 pub async fn login(
@@ -170,7 +171,7 @@ pub async fn login(
 }
 
 pub async fn logout(req: HttpRequest, pool: web::Data<PgPool>) -> Result<HttpResponse> {
-    let _current_user = get_current_user(&req)
+    let current_user = get_current_user(&req)
         .ok_or_else(|| actix_web::error::ErrorUnauthorized("Not authenticated"))?;
 
     // Get token from Authorization header
@@ -180,7 +181,25 @@ pub async fn logout(req: HttpRequest, pool: web::Data<PgPool>) -> Result<HttpRes
                 // Invalidate session
                 if let Err(e) = SessionManager::logout(pool.get_ref(), token).await {
                     eprintln!("Failed to logout session: {}", e);
-                    // Don't fail logout if session invalidation fails
+                }
+
+                // Blacklist token (get expiration from JWT)
+                match AuthUtils::validate_token_without_expiry(token) {
+                    Ok(claims) => {
+                        let expires_at = chrono::DateTime::<chrono::Utc>::from_timestamp(claims.exp as i64, 0)
+                            .unwrap_or_else(|| chrono::Utc::now());
+                        
+                        if let Err(e) = TokenBlacklist::blacklist_token(
+                            pool.get_ref(),
+                            current_user.sub,
+                            token,
+                            expires_at,
+                            Some("User logout"),
+                        ).await {
+                            eprintln!("Failed to blacklist token: {}", e);
+                        }
+                    }
+                    Err(e) => eprintln!("Failed to decode claims for blacklist: {:?}", e),
                 }
             }
         }

@@ -25,3 +25,4 @@ hex = "0.4.3"
 reqwest = { version = "0.11", features = ["json"] }
 lettre = { version = "0.11", features = ["smtp-transport", "builder", "tokio1-native-tls"] }
 sha2 = "0.10"
+base64 = "0.21"
