@@ -11,6 +11,7 @@ use actix_web::middleware::Logger;
 use actix_web::{App, HttpServer};
 use dotenvy::dotenv;
 use sqlx::postgres::PgPoolOptions;
+use crate::middleware::security_headers::SecurityHeadersMiddleware;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -42,6 +43,7 @@ async fn main() -> std::io::Result<()> {
         App::new()
             .wrap(cors)
             .wrap(Logger::default())
+            .wrap(SecurityHeadersMiddleware)
             .app_data(actix_web::web::Data::new(pool.clone()))
             .app_data(actix_web::web::Data::new(jwt_secret.clone()))
             .configure(crate::routes::api::config)
