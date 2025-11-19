@@ -2,6 +2,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use sha2::{Sha256, Digest};
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BlacklistedToken {
@@ -113,5 +114,21 @@ impl TokenBlacklist {
         .await?;
 
         Ok((active.count.unwrap_or(0), expired.count.unwrap_or(0)))
+    }
+}
+
+/// Service wrapper for app data injection (allows access to pool + TokenBlacklist API)
+#[derive(Clone)]
+pub struct TokenBlacklistService {
+    pub pool: Arc<PgPool>,
+}
+
+impl TokenBlacklistService {
+    pub fn new(pool: PgPool) -> Self {
+        Self { pool: Arc::new(pool) }
+    }
+
+    pub async fn is_blacklisted(&self, token: &str) -> Result<bool, sqlx::Error> {
+        TokenBlacklist::is_blacklisted(&self.pool, token).await
     }
 }

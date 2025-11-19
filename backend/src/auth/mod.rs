@@ -5,3 +5,4 @@ pub mod password;
 pub mod security;
 pub mod traditional;
 pub mod web3;
+pub mod refresh_tokens;

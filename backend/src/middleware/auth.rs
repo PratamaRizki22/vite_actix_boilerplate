@@ -10,6 +10,7 @@ use std::rc::Rc;
 
 use crate::models::auth::Claims;
 use crate::utils::auth::{AuthError, AuthUtils};
+use crate::services::token_blacklist::TokenBlacklistService;
 
 pub struct AuthMiddleware {
     pub required_role: Option<String>,
@@ -88,6 +89,15 @@ where
             // Extract and validate token
             let token = AuthUtils::extract_token_from_header(auth_header)
                 .map_err(|_| actix_web::error::ErrorUnauthorized("Invalid token format"))?;
+
+            // Check if token is blacklisted (important: before validating expiry)
+            if let Some(blacklist_service) = req.app_data::<actix_web::web::Data<TokenBlacklistService>>() {
+                if let Ok(is_blacklisted) = blacklist_service.is_blacklisted(token).await {
+                    if is_blacklisted {
+                        return Err(actix_web::error::ErrorUnauthorized("Token has been revoked"));
+                    }
+                }
+            }
 
             let claims = AuthUtils::validate_token(token, jwt_secret).map_err(|err| match err {
                 AuthError::TokenExpired => actix_web::error::ErrorUnauthorized("Token expired"),

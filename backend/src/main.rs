@@ -12,6 +12,7 @@ use actix_web::{App, HttpServer};
 use dotenvy::dotenv;
 use sqlx::postgres::PgPoolOptions;
 use crate::middleware::security_headers::SecurityHeadersMiddleware;
+use crate::services::token_blacklist::TokenBlacklistService;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -46,6 +47,7 @@ async fn main() -> std::io::Result<()> {
             .wrap(SecurityHeadersMiddleware)
             .app_data(actix_web::web::Data::new(pool.clone()))
             .app_data(actix_web::web::Data::new(jwt_secret.clone()))
+            .app_data(actix_web::web::Data::new(TokenBlacklistService::new(pool.clone())))
             .configure(crate::routes::api::config)
     })
     .bind("127.0.0.1:8080")?
