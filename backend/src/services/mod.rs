@@ -6,3 +6,4 @@ pub mod account_lockout;
 pub mod audit_logger;
 pub mod refresh_token_service;
 pub mod web3_challenge_service;
+pub mod scheduled_tasks;

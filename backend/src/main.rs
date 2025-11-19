@@ -13,6 +13,7 @@ use dotenvy::dotenv;
 use sqlx::postgres::PgPoolOptions;
 use crate::middleware::security_headers::SecurityHeadersMiddleware;
 use crate::services::token_blacklist::TokenBlacklistService;
+use crate::services::scheduled_tasks::start_scheduled_tasks;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -29,6 +30,9 @@ async fn main() -> std::io::Result<()> {
         .connect(&database_url)
         .await
         .expect("Failed to connect database");
+
+    // Start background scheduled cleanup tasks
+    start_scheduled_tasks(pool.clone());
 
     HttpServer::new(move || {
         let cors_origins = std::env::var("CORS_ALLOWED_ORIGINS")
