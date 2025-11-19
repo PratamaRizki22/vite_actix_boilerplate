@@ -22,7 +22,7 @@ async fn main() -> std::io::Result<()> {
     let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
 
     let jwt_secret = std::env::var("JWT_SECRET")
-        .unwrap_or_else(|_| "default-secret-key-change-in-production".to_string());
+        .expect("JWT_SECRET environment variable must be set");
 
     let pool = PgPoolOptions::new()
         .max_connections(5)
@@ -31,8 +31,15 @@ async fn main() -> std::io::Result<()> {
         .expect("Failed to connect database");
 
     HttpServer::new(move || {
-        let cors = Cors::default()
-            .allowed_origin("http://localhost:5173")
+        let cors_origins = std::env::var("CORS_ALLOWED_ORIGINS")
+            .unwrap_or_else(|_| "http://localhost:5173".to_string());
+        
+        let mut cors = Cors::default();
+        for origin in cors_origins.split(',') {
+            cors = cors.allowed_origin(origin.trim());
+        }
+        
+        cors = cors
             .allowed_methods(vec!["GET", "POST", "PUT", "DELETE"])
             .allowed_headers(vec![
                 actix_web::http::header::CONTENT_TYPE,

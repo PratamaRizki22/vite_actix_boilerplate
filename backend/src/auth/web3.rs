@@ -1,4 +1,4 @@
-use actix_web::{HttpResponse, Result, web};
+use actix_web::{HttpResponse, Result, web, HttpRequest};
 use lazy_static::lazy_static;
 use sqlx::PgPool;
 use std::collections::HashMap;
@@ -9,6 +9,7 @@ use crate::models::auth::{
 };
 use crate::models::user::User;
 use crate::utils::auth::AuthUtils;
+use crate::middleware::rate_limiter::RateLimiter;
 
 // Store challenges temporarily (in production, use Redis/database)
 lazy_static! {
@@ -16,8 +17,19 @@ lazy_static! {
 }
 
 pub async fn web3_challenge(
+    req: HttpRequest,
     challenge_data: web::Json<Web3ChallengeRequest>,
 ) -> Result<HttpResponse> {
+    // Rate limiting: 5 challenges per hour per IP
+    let (is_allowed, _, reset_seconds) = 
+        RateLimiter::check_limit(&req, "web3_challenge", 5, 3600);
+
+    if !is_allowed {
+        return Ok(HttpResponse::TooManyRequests().json(serde_json::json!({
+            "error": "Too many Web3 challenges. Try again later.",
+            "retry_after": reset_seconds
+        })));
+    }
     use rand::Rng;
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -60,8 +72,19 @@ pub async fn web3_challenge(
 pub async fn web3_verify(
     pool: web::Data<PgPool>,
     jwt_secret: web::Data<String>,
+    req: HttpRequest,
     verify_data: web::Json<Web3VerifyRequest>,
 ) -> Result<HttpResponse> {
+    // Rate limiting: 10 verify attempts per hour per IP
+    let (is_allowed, _, reset_seconds) = 
+        RateLimiter::check_limit(&req, "web3_verify", 10, 3600);
+
+    if !is_allowed {
+        return Ok(HttpResponse::TooManyRequests().json(serde_json::json!({
+            "error": "Too many Web3 verify attempts. Try again later.",
+            "retry_after": reset_seconds
+        })));
+    }
     use std::time::{SystemTime, UNIX_EPOCH};
 
     // Check if challenge exists and not expired
@@ -122,6 +145,7 @@ pub async fn web3_verify(
     // };
 
     // For testing: temporarily bypass signature verification
+    // TODO: Uncomment for production with proper ECDSA verification
     let recovered_address = verify_data.address.clone();
 
     // Verify address matches

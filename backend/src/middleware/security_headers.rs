@@ -64,7 +64,7 @@ where
             headers.insert(
                 header::HeaderName::from_static("content-security-policy"),
                 header::HeaderValue::from_static(
-                    "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https:; frame-ancestors 'none';"
+                    "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https:; frame-ancestors 'none'; object-src 'none';"
                 ),
             );
 
