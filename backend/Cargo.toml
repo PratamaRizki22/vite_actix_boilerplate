@@ -27,3 +27,4 @@ lettre = { version = "0.11", features = ["smtp-transport", "builder", "tokio1-na
 sha2 = "0.10"
 base64 = "0.21"
 uuid = { version = "1", features = ["v4"] }
+redis = { version = "0.25", features = ["aio", "tokio-comp"] }

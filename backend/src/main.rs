@@ -12,6 +12,8 @@ use actix_web::{App, HttpServer};
 use dotenvy::dotenv;
 use sqlx::postgres::PgPoolOptions;
 use crate::middleware::security_headers::SecurityHeadersMiddleware;
+use crate::middleware::redis_rate_limiter::RedisRateLimiter;
+use crate::middleware::redis_token_blacklist::RedisTokenBlacklist;
 use crate::services::token_blacklist::TokenBlacklistService;
 use crate::services::scheduled_tasks::start_scheduled_tasks;
 
@@ -25,11 +27,23 @@ async fn main() -> std::io::Result<()> {
     let jwt_secret = std::env::var("JWT_SECRET")
         .expect("JWT_SECRET environment variable must be set");
 
+    let redis_url = std::env::var("REDIS_URL")
+        .unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string());
+
     let pool = PgPoolOptions::new()
         .max_connections(5)
         .connect(&database_url)
         .await
         .expect("Failed to connect database");
+
+    // Initialize Redis services
+    let redis_rate_limiter = RedisRateLimiter::new(&redis_url)
+        .await
+        .expect("Failed to connect to Redis for rate limiting");
+
+    let redis_token_blacklist = RedisTokenBlacklist::new(&redis_url)
+        .await
+        .expect("Failed to connect to Redis for token blacklist");
 
     // Start background scheduled cleanup tasks
     start_scheduled_tasks(pool.clone());
@@ -59,6 +73,8 @@ async fn main() -> std::io::Result<()> {
             .app_data(actix_web::web::Data::new(pool.clone()))
             .app_data(actix_web::web::Data::new(jwt_secret.clone()))
             .app_data(actix_web::web::Data::new(TokenBlacklistService::new(pool.clone())))
+            .app_data(actix_web::web::Data::new(redis_rate_limiter.clone()))
+            .app_data(actix_web::web::Data::new(redis_token_blacklist.clone()))
             .configure(crate::routes::api::config)
     })
     .bind("127.0.0.1:8080")?
