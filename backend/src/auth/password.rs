@@ -6,6 +6,7 @@ use crate::middleware::rate_limiter::RateLimiter;
 use crate::models::auth::{PasswordResetRequest, PasswordResetConfirm, PasswordResetResponse};
 use crate::models::user::User;
 use crate::services::email_service::EmailService;
+use crate::services::audit_logger::AuditLogger;
 use crate::utils::auth::AuthUtils;
 
 pub async fn request_password_reset(
@@ -138,6 +139,14 @@ pub async fn reset_password(
     .execute(pool.get_ref())
     .await
     .map_err(|_| actix_web::error::ErrorInternalServerError("Failed to update password"))?;
+
+    // Log password reset
+    let _ = AuditLogger::log_password_reset(
+        pool.get_ref(),
+        user.id,
+        None,
+        None,
+    ).await;
 
     Ok(HttpResponse::Ok().json(PasswordResetResponse {
         success: true,

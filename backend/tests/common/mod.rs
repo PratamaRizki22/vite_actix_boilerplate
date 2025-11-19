@@ -12,6 +12,29 @@ pub async fn setup_test_db() -> PgPool {
     pool
 }
 
+pub async fn create_test_user(pool: &PgPool, username: &str, email: &str, email_verified: bool) -> (i32, String, String) {
+    use bcrypt::{hash, DEFAULT_COST};
+    
+    let password_hash = hash("Test@1234", DEFAULT_COST)
+        .expect("Failed to hash password");
+    
+    let result = sqlx::query!(
+        "INSERT INTO users (username, email, password, role, email_verified) 
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING id",
+        username,
+        email,
+        password_hash,
+        "user",
+        email_verified
+    )
+    .fetch_one(pool)
+    .await
+    .expect("Failed to create test user");
+    
+    (result.id, username.to_string(), email.to_string())
+}
+
 pub fn get_test_jwt_token() -> String {
     use chrono::Utc;
     use jsonwebtoken::{encode, EncodingKey, Header};

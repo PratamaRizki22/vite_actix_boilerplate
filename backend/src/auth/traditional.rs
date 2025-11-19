@@ -10,6 +10,7 @@ use crate::services::email_service::EmailService;
 use crate::services::session_manager::{SessionManager, CreateSessionData};
 use crate::services::token_blacklist::TokenBlacklist;
 use crate::services::account_lockout::AccountLockout;
+use crate::services::audit_logger::AuditLogger;
 use crate::utils::auth::AuthUtils;
 
 pub async fn login(
@@ -49,6 +50,26 @@ pub async fn login(
     let user = match user {
         Some(user) => user,
         None => {
+            // Log failed login attempt (invalid user)
+            let ip_address = req.connection_info()
+                .peer_addr()
+                .map(|s| s.to_string());
+            let user_agent = req.headers()
+                .get("User-Agent")
+                .and_then(|h| h.to_str().ok())
+                .map(|s| s.to_string());
+            
+            let _ = AuditLogger::log(
+                pool.get_ref(),
+                None,
+                AuditLogger::EVENT_FAILED_LOGIN,
+                "Failed login attempt - invalid username/email",
+                ip_address.as_deref(),
+                user_agent.as_deref(),
+                AuditLogger::STATUS_FAILED,
+                Some(serde_json::json!({"identifier": login_identifier})),
+            ).await;
+
             return Ok(HttpResponse::Unauthorized().json(serde_json::json!({
                 "error": "Invalid credentials"
             })));
@@ -59,8 +80,28 @@ pub async fn login(
     match AccountLockout::is_locked(pool.get_ref(), user.id).await {
         Ok(true) => {
             // Account is locked
+            let ip_address = req.connection_info()
+                .peer_addr()
+                .map(|s| s.to_string());
+            let user_agent = req.headers()
+                .get("User-Agent")
+                .and_then(|h| h.to_str().ok())
+                .map(|s| s.to_string());
+            
+            // Log lockout attempt
             match AccountLockout::get_remaining_lockout_seconds(pool.get_ref(), user.id).await {
                 Ok(seconds) => {
+                    let _ = AuditLogger::log(
+                        pool.get_ref(),
+                        Some(user.id),
+                        AuditLogger::EVENT_FAILED_LOGIN,
+                        "Login attempt on locked account",
+                        ip_address.as_deref(),
+                        user_agent.as_deref(),
+                        AuditLogger::STATUS_BLOCKED,
+                        Some(serde_json::json!({"remaining_seconds": seconds})),
+                    ).await;
+
                     return Ok(HttpResponse::Forbidden().json(serde_json::json!({
                         "error": "Account is temporarily locked due to too many failed login attempts",
                         "locked": true,
@@ -68,6 +109,17 @@ pub async fn login(
                     })));
                 }
                 Err(_) => {
+                    let _ = AuditLogger::log(
+                        pool.get_ref(),
+                        Some(user.id),
+                        AuditLogger::EVENT_FAILED_LOGIN,
+                        "Login attempt on locked account",
+                        ip_address.as_deref(),
+                        user_agent.as_deref(),
+                        AuditLogger::STATUS_BLOCKED,
+                        None,
+                    ).await;
+
                     return Ok(HttpResponse::Forbidden().json(serde_json::json!({
                         "error": "Account is temporarily locked",
                         "locked": true
@@ -121,8 +173,8 @@ pub async fn login(
             user_id: user.id,
             token: token.clone(),
             device_name,
-            ip_address,
-            user_agent,
+            ip_address: ip_address.clone(),
+            user_agent: user_agent.clone(),
         };
 
         if let Err(e) = SessionManager::create_session(pool.get_ref(), session_data).await {
@@ -131,6 +183,22 @@ pub async fn login(
 
         // Reset rate limit on successful login
         RateLimiter::reset(&req, "login");
+
+        // Log successful Web3 login
+        let ip_address = req.connection_info()
+            .peer_addr()
+            .map(|s| s.to_string());
+        let user_agent = req.headers()
+            .get("User-Agent")
+            .and_then(|h| h.to_str().ok())
+            .map(|s| s.to_string());
+        
+        let _ = AuditLogger::log_login(
+            pool.get_ref(),
+            user.id,
+            ip_address.as_deref(),
+            user_agent.as_deref(),
+        ).await;
 
         let response = LoginResponse {
             token,
@@ -145,6 +213,23 @@ pub async fn login(
         .map_err(|_| actix_web::error::ErrorInternalServerError("Password verification failed"))?;
 
     if !is_valid_password {
+        // Log failed login attempt
+        let ip_address = req.connection_info()
+            .peer_addr()
+            .map(|s| s.to_string());
+        let user_agent = req.headers()
+            .get("User-Agent")
+            .and_then(|h| h.to_str().ok())
+            .map(|s| s.to_string());
+        
+        let _ = AuditLogger::log_failed_login(
+            pool.get_ref(),
+            user.id,
+            "Invalid password",
+            ip_address.as_deref(),
+            user_agent.as_deref(),
+        ).await;
+
         // Record failed login attempt
         if let Err(e) = AccountLockout::record_failed_attempt(pool.get_ref(), user.id).await {
             eprintln!("Error recording failed login attempt: {}", e);
@@ -188,8 +273,8 @@ pub async fn login(
         user_id: user.id,
         token: token.clone(),
         device_name,
-        ip_address,
-        user_agent,
+        ip_address: ip_address.clone(),
+        user_agent: user_agent.clone(),
     };
 
     if let Err(e) = SessionManager::create_session(pool.get_ref(), session_data).await {
@@ -199,6 +284,14 @@ pub async fn login(
 
     // Reset rate limit on successful login
     RateLimiter::reset(&req, "login");
+
+    // Log successful login
+    let _ = AuditLogger::log_login(
+        pool.get_ref(),
+        user.id,
+        ip_address.as_deref(),
+        user_agent.as_deref(),
+    ).await;
 
     let response = LoginResponse {
         token,
@@ -211,6 +304,15 @@ pub async fn login(
 pub async fn logout(req: HttpRequest, pool: web::Data<PgPool>) -> Result<HttpResponse> {
     let current_user = get_current_user(&req)
         .ok_or_else(|| actix_web::error::ErrorUnauthorized("Not authenticated"))?;
+
+    let ip_address = req.connection_info()
+        .peer_addr()
+        .map(|s| s.to_string());
+
+    let user_agent = req.headers()
+        .get("User-Agent")
+        .and_then(|h| h.to_str().ok())
+        .map(|s| s.to_string());
 
     // Get token from Authorization header
     if let Some(auth_header) = req.headers().get("Authorization") {
@@ -242,6 +344,14 @@ pub async fn logout(req: HttpRequest, pool: web::Data<PgPool>) -> Result<HttpRes
             }
         }
     }
+
+    // Log logout
+    let _ = AuditLogger::log_logout(
+        pool.get_ref(),
+        current_user.sub,
+        ip_address.as_deref(),
+        user_agent.as_deref(),
+    ).await;
 
     Ok(HttpResponse::Ok().json(serde_json::json!({
         "message": "Successfully logged out"
