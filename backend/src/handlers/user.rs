@@ -4,6 +4,7 @@ use sqlx::PgPool;
 use crate::middleware::auth::get_current_user;
 use crate::models::user::{CreateUser, UpdateUser, User, UserResponse};
 use crate::utils::auth::AuthUtils;
+use crate::utils::validation::{validate_username, validate_email, validate_password};
 
 pub async fn get_users(pool: web::Data<PgPool>) -> Result<HttpResponse> {
     let users = sqlx::query_as!(
@@ -44,6 +45,27 @@ pub async fn create_user(
     pool: web::Data<PgPool>,
     user_data: web::Json<CreateUser>,
 ) -> Result<HttpResponse> {
+    // Validate input
+    if let Err(e) = validate_username(&user_data.username) {
+        return Ok(HttpResponse::BadRequest().json(serde_json::json!({
+            "error": format!("Invalid username: {}", e)
+        })));
+    }
+
+    if let Some(email) = &user_data.email {
+        if let Err(e) = validate_email(email) {
+            return Ok(HttpResponse::BadRequest().json(serde_json::json!({
+                "error": format!("Invalid email: {}", e)
+            })));
+        }
+    }
+
+    if let Err(e) = validate_password(&user_data.password) {
+        return Ok(HttpResponse::BadRequest().json(serde_json::json!({
+            "error": format!("Invalid password: {}", e)
+        })));
+    }
+
     let role = user_data.role.as_deref().unwrap_or("user");
 
     // Hash password before storing
