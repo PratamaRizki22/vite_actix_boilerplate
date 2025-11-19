@@ -1,8 +1,5 @@
 use actix_web::{HttpResponse, Result, web, HttpRequest};
-use lazy_static::lazy_static;
 use sqlx::PgPool;
-use std::collections::HashMap;
-use std::sync::Mutex;
 
 use crate::models::auth::{
     Web3ChallengeRequest, Web3ChallengeResponse, Web3VerifyRequest, Web3VerifyResponse,
@@ -10,13 +7,10 @@ use crate::models::auth::{
 use crate::models::user::User;
 use crate::utils::auth::AuthUtils;
 use crate::middleware::rate_limiter::RateLimiter;
-
-// Store challenges temporarily (in production, use Redis/database)
-lazy_static! {
-    static ref CHALLENGES: Mutex<HashMap<String, (String, u64)>> = Mutex::new(HashMap::new());
-}
+use crate::services::web3_challenge_service::Web3ChallengeService;
 
 pub async fn web3_challenge(
+    pool: web::Data<PgPool>,
     req: HttpRequest,
     challenge_data: web::Json<Web3ChallengeRequest>,
 ) -> Result<HttpResponse> {
@@ -49,21 +43,20 @@ pub async fn web3_challenge(
             .as_secs()
     );
 
-    // Store challenge with expiration (5 minutes)
-    let expires_at = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs()
-        + 300; // 5 minutes
-
-    CHALLENGES.lock().unwrap().insert(
-        challenge_data.address.clone(),
-        (message.clone(), expires_at),
-    );
+    // Store challenge in database with 5-minute expiration
+    let _ = Web3ChallengeService::create_challenge(
+        pool.get_ref(),
+        &challenge_data.address,
+        &challenge,
+        300, // 5 minutes TTL
+    ).await;
 
     let response = Web3ChallengeResponse {
         challenge: message,
-        expires_at,
+        expires_at: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() + 300,
     };
 
     Ok(HttpResponse::Ok().json(response))
@@ -87,37 +80,23 @@ pub async fn web3_verify(
     }
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    // Check if challenge exists and not expired
-    let challenges = CHALLENGES.lock().unwrap();
-    if let Some((stored_challenge, expires_at)) = challenges.get(&verify_data.address) {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+    // Verify challenge exists in database and is not expired
+    let challenge_valid = Web3ChallengeService::verify_challenge(
+        pool.get_ref(),
+        &verify_data.address,
+        &verify_data.challenge,
+    ).await.unwrap_or(false);
 
-        if now > *expires_at {
-            return Ok(HttpResponse::BadRequest().json(Web3VerifyResponse {
-                success: false,
-                token: None,
-                message: "Challenge expired".to_string(),
-            }));
-        }
-
-        if stored_challenge != &verify_data.challenge {
-            return Ok(HttpResponse::BadRequest().json(Web3VerifyResponse {
-                success: false,
-                token: None,
-                message: "Invalid challenge".to_string(),
-            }));
-        }
-    } else {
+    if !challenge_valid {
         return Ok(HttpResponse::BadRequest().json(Web3VerifyResponse {
             success: false,
             token: None,
-            message: "Challenge not found".to_string(),
+            message: "Invalid or expired challenge".to_string(),
         }));
     }
-    drop(challenges);
+
+    // Mark challenge as used
+    let _ = Web3ChallengeService::mark_used(pool.get_ref(), &verify_data.challenge).await;
 
     // Verify signature - TEMPORARILY DISABLED FOR TESTING
     // let message_hash = hash_message(verify_data.challenge.as_bytes());
@@ -144,6 +123,7 @@ pub async fn web3_verify(
     //     }
     // };
 
+    // TODO: Implement signature verification when ready
     // For testing: temporarily bypass signature verification
     // TODO: Uncomment for production with proper ECDSA verification
     let recovered_address = verify_data.address.clone();
@@ -203,9 +183,6 @@ pub async fn web3_verify(
     // Generate JWT token
     let token = AuthUtils::create_token(user.id, &user.username, &user.role, jwt_secret.get_ref())
         .map_err(|_| actix_web::error::ErrorInternalServerError("Token generation failed"))?;
-
-    // Remove used challenge
-    CHALLENGES.lock().unwrap().remove(&verify_data.address);
 
     let response = Web3VerifyResponse {
         success: true,
