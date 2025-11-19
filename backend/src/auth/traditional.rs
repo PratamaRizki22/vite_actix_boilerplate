@@ -11,6 +11,7 @@ use crate::services::session_manager::{SessionManager, CreateSessionData};
 use crate::services::token_blacklist::TokenBlacklist;
 use crate::services::account_lockout::AccountLockout;
 use crate::services::audit_logger::AuditLogger;
+use crate::services::refresh_token_service::RefreshTokenService;
 use crate::utils::auth::AuthUtils;
 
 pub async fn login(
@@ -200,8 +201,17 @@ pub async fn login(
             user_agent.as_deref(),
         ).await;
 
+        // Generate refresh token
+        let refresh_token = RefreshTokenService::generate_token();
+        let _ = RefreshTokenService::create_refresh_token(
+            pool.get_ref(),
+            user.id,
+            &refresh_token,
+        ).await;
+
         let response = LoginResponse {
             token,
+            refresh_token,
             user: UserResponse::from(user),
         };
 
@@ -293,8 +303,17 @@ pub async fn login(
         user_agent.as_deref(),
     ).await;
 
+    // Generate refresh token
+    let refresh_token = RefreshTokenService::generate_token();
+    let _ = RefreshTokenService::create_refresh_token(
+        pool.get_ref(),
+        user.id,
+        &refresh_token,
+    ).await;
+
     let response = LoginResponse {
         token,
+        refresh_token,
         user: UserResponse::from(user),
     };
 

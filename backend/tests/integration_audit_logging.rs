@@ -7,7 +7,7 @@ async fn test_audit_log_direct_insertion() {
     let pool = common::setup_test_db().await;
 
     // Create test user
-    let (user_id, _, _) = common::create_test_user(&pool, "testuser", "test@example.com", true).await;
+    let (user_id, _, _) = common::create_test_user(&pool, &format!("testuser_{}", uuid::Uuid::new_v4()), &format!("test_{}@example.com", uuid::Uuid::new_v4()), true).await;
 
     // Log an event directly
     let result = sqlx::query!(
@@ -47,7 +47,7 @@ async fn test_audit_log_direct_insertion() {
 async fn test_audit_log_login_event() {
     let pool = common::setup_test_db().await;
 
-    let (user_id, _, _) = common::create_test_user(&pool, "testuser", "test@example.com", true).await;
+    let (user_id, _, _) = common::create_test_user(&pool, &format!("testuser_{}", uuid::Uuid::new_v4()), &format!("test_{}@example.com", uuid::Uuid::new_v4()), true).await;
 
     let _ = sqlx::query!(
         "INSERT INTO audit_logs (user_id, event_type, event_action, ip_address, user_agent, status) VALUES ($1, $2, $3, $4, $5, $6)",
@@ -70,7 +70,7 @@ async fn test_audit_log_login_event() {
 async fn test_audit_log_failed_login() {
     let pool = common::setup_test_db().await;
 
-    let (user_id, _, _) = common::create_test_user(&pool, "testuser", "test@example.com", true).await;
+    let (user_id, _, _) = common::create_test_user(&pool, &format!("testuser_{}", uuid::Uuid::new_v4()), &format!("test_{}@example.com", uuid::Uuid::new_v4()), true).await;
 
     let _ = sqlx::query!(
         "INSERT INTO audit_logs (user_id, event_type, event_action, ip_address, user_agent, status, details)
@@ -96,7 +96,7 @@ async fn test_audit_log_failed_login() {
 async fn test_audit_log_logout() {
     let pool = common::setup_test_db().await;
 
-    let (user_id, _, _) = common::create_test_user(&pool, "testuser", "test@example.com", true).await;
+    let (user_id, _, _) = common::create_test_user(&pool, &format!("testuser_{}", uuid::Uuid::new_v4()), &format!("test_{}@example.com", uuid::Uuid::new_v4()), true).await;
 
     let _ = sqlx::query!(
         "INSERT INTO audit_logs (user_id, event_type, event_action, ip_address, user_agent, status)
@@ -120,7 +120,7 @@ async fn test_audit_log_logout() {
 async fn test_audit_log_account_lockout() {
     let pool = common::setup_test_db().await;
 
-    let (user_id, _, _) = common::create_test_user(&pool, "testuser", "test@example.com", true).await;
+    let (user_id, _, _) = common::create_test_user(&pool, &format!("testuser_{}", uuid::Uuid::new_v4()), &format!("test_{}@example.com", uuid::Uuid::new_v4()), true).await;
 
     let _ = sqlx::query!(
         "INSERT INTO audit_logs (user_id, event_type, event_action, ip_address, user_agent, status, details)
@@ -145,7 +145,7 @@ async fn test_audit_log_account_lockout() {
 async fn test_audit_log_password_reset() {
     let pool = common::setup_test_db().await;
 
-    let (user_id, _, _) = common::create_test_user(&pool, "testuser", "test@example.com", true).await;
+    let (user_id, _, _) = common::create_test_user(&pool, &format!("testuser_{}", uuid::Uuid::new_v4()), &format!("test_{}@example.com", uuid::Uuid::new_v4()), true).await;
 
     let _ = sqlx::query!(
         "INSERT INTO audit_logs (user_id, event_type, event_action, status)
@@ -169,7 +169,7 @@ async fn test_audit_log_password_reset() {
 async fn test_audit_log_multiple_events() {
     let pool = common::setup_test_db().await;
 
-    let (user_id, _, _) = common::create_test_user(&pool, "testuser", "test@example.com", true).await;
+    let (user_id, _, _) = common::create_test_user(&pool, &format!("testuser_{}", uuid::Uuid::new_v4()), &format!("test_{}@example.com", uuid::Uuid::new_v4()), true).await;
 
     let _ = sqlx::query!(
         "INSERT INTO audit_logs (user_id, event_type, event_action, status) VALUES ($1, $2, $3, $4)",
@@ -204,8 +204,8 @@ async fn test_audit_log_multiple_events() {
 async fn test_audit_log_get_by_event_type() {
     let pool = common::setup_test_db().await;
 
-    let (user1_id, _, _) = common::create_test_user(&pool, "user1", "user1@example.com", true).await;
-    let (user2_id, _, _) = common::create_test_user(&pool, "user2", "user2@example.com", true).await;
+    let (user1_id, _, _) = common::create_test_user(&pool, &format!("user1_{}", uuid::Uuid::new_v4()), &format!("user1_{}@example.com", uuid::Uuid::new_v4()), true).await;
+    let (user2_id, _, _) = common::create_test_user(&pool, &format!("user2_{}", uuid::Uuid::new_v4()), &format!("user2_{}@example.com", uuid::Uuid::new_v4()), true).await;
 
     let _ = sqlx::query!(
         "INSERT INTO audit_logs (user_id, event_type, event_action, status) VALUES ($1, $2, $3, $4)",
@@ -223,8 +223,8 @@ async fn test_audit_log_get_by_event_type() {
     ).execute(&pool).await;
 
     let login_count = sqlx::query!(
-        "SELECT COUNT(*) as count FROM audit_logs WHERE event_type = $1",
-        "LOGIN"
+        "SELECT COUNT(*) as count FROM audit_logs WHERE event_type = $1 AND (user_id = $2 OR user_id = $3)",
+        "LOGIN", user1_id, user2_id
     )
     .fetch_one(&pool)
     .await
@@ -233,8 +233,8 @@ async fn test_audit_log_get_by_event_type() {
     assert_eq!(login_count.count.unwrap_or(0), 2);
 
     let logout_count = sqlx::query!(
-        "SELECT COUNT(*) as count FROM audit_logs WHERE event_type = $1",
-        "LOGOUT"
+        "SELECT COUNT(*) as count FROM audit_logs WHERE event_type = $1 AND (user_id = $2 OR user_id = $3)",
+        "LOGOUT", user1_id, user2_id
     )
     .fetch_one(&pool)
     .await
@@ -247,7 +247,7 @@ async fn test_audit_log_get_by_event_type() {
 async fn test_audit_log_with_jsonb_details() {
     let pool = common::setup_test_db().await;
 
-    let (user_id, _, _) = common::create_test_user(&pool, "testuser", "test@example.com", true).await;
+    let (user_id, _, _) = common::create_test_user(&pool, &format!("testuser_{}", uuid::Uuid::new_v4()), &format!("test_{}@example.com", uuid::Uuid::new_v4()), true).await;
 
     let details = serde_json::json!({"reason": "incorrect_password", "attempts": 3});
     let _ = sqlx::query!(
@@ -298,7 +298,7 @@ async fn test_audit_log_with_null_user_id() {
 async fn test_audit_log_timestamp_is_set() {
     let pool = common::setup_test_db().await;
 
-    let (user_id, _, _) = common::create_test_user(&pool, "testuser", "test@example.com", true).await;
+    let (user_id, _, _) = common::create_test_user(&pool, &format!("testuser_{}", uuid::Uuid::new_v4()), &format!("test_{}@example.com", uuid::Uuid::new_v4()), true).await;
 
     let before = chrono::Utc::now();
     
