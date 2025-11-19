@@ -9,6 +9,7 @@ use crate::models::user::{User, UserResponse};
 use crate::services::email_service::EmailService;
 use crate::services::session_manager::{SessionManager, CreateSessionData};
 use crate::services::token_blacklist::TokenBlacklist;
+use crate::services::account_lockout::AccountLockout;
 use crate::utils::auth::AuthUtils;
 
 pub async fn login(
@@ -53,6 +54,33 @@ pub async fn login(
             })));
         }
     };
+
+    // Check if account is locked due to failed login attempts
+    match AccountLockout::is_locked(pool.get_ref(), user.id).await {
+        Ok(true) => {
+            // Account is locked
+            match AccountLockout::get_remaining_lockout_seconds(pool.get_ref(), user.id).await {
+                Ok(seconds) => {
+                    return Ok(HttpResponse::Forbidden().json(serde_json::json!({
+                        "error": "Account is temporarily locked due to too many failed login attempts",
+                        "locked": true,
+                        "retry_after": seconds
+                    })));
+                }
+                Err(_) => {
+                    return Ok(HttpResponse::Forbidden().json(serde_json::json!({
+                        "error": "Account is temporarily locked",
+                        "locked": true
+                    })));
+                }
+            }
+        }
+        Err(e) => {
+            eprintln!("Error checking account lockout: {}", e);
+            // Don't block login on error, but log it
+        }
+        _ => {}
+    }
 
     // Check if email is verified (except for Web3 users)
     if user.password != "web3_auth" && !user.email_verified {
@@ -117,6 +145,11 @@ pub async fn login(
         .map_err(|_| actix_web::error::ErrorInternalServerError("Password verification failed"))?;
 
     if !is_valid_password {
+        // Record failed login attempt
+        if let Err(e) = AccountLockout::record_failed_attempt(pool.get_ref(), user.id).await {
+            eprintln!("Error recording failed login attempt: {}", e);
+        }
+        
         return Ok(HttpResponse::Unauthorized().json(serde_json::json!({
             "error": "Invalid credentials"
         })));
@@ -125,6 +158,11 @@ pub async fn login(
     // Create JWT token
     let token = AuthUtils::create_token(user.id, &user.username, &user.role, jwt_secret.get_ref())
         .map_err(|_| actix_web::error::ErrorInternalServerError("Token creation failed"))?;
+
+    // Reset failed login attempts on successful login
+    if let Err(e) = AccountLockout::reset_attempts(pool.get_ref(), user.id).await {
+        eprintln!("Error resetting lockout attempts: {}", e);
+    }
 
     // Create session in database
     let device_name = req.headers()
