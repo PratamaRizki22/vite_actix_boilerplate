@@ -40,11 +40,11 @@ const Header = () => {
         <div className="flex justify-between items-center py-4">
           <div className="flex items-center gap-3">
             <div className="bg-black border border-black p-2">
-              <img src="/ush.webp" alt="Wallet Core" className="h-10 w-10" />
+              <img src="/ush.webp" alt="UTY software house" className="h-10 w-10" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-black">Wallet Core</h1>
-              <p className="text-sm text-black">Web3 Auth & Management</p>
+              <h1 className="text-2xl font-bold text-black">UTY software house</h1>
+              <p className="text-sm text-black">QA skill test</p>
             </div>
           </div>
           
