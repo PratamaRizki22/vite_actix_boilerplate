@@ -10,6 +10,7 @@ const HomePage = () => {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [searchPostTerm, setSearchPostTerm] = useState('')
+  const [filterDate, setFilterDate] = useState('')
   const [searching, setSearching] = useState(false)
 
   useEffect(() => {
@@ -34,7 +35,7 @@ const HomePage = () => {
 
   const handleSearchPosts = async (e) => {
     e.preventDefault()
-    if (!searchPostTerm.trim()) {
+    if (!searchPostTerm.trim() && !filterDate) {
       fetchFeed()
       return
     }
@@ -43,13 +44,37 @@ const HomePage = () => {
       setLoading(true)
       setError('')
       setSearching(true)
-      const data = await postService.searchPosts(searchPostTerm)
+      
+      let data
+      if (searchPostTerm.trim()) {
+        // Search by text
+        data = await postService.searchPosts(searchPostTerm)
+      } else {
+        // If no search term, get all posts
+        data = await postService.getFeed()
+      }
+      
+      // Filter by date if provided
+      if (filterDate) {
+        const filterDateObj = new Date(filterDate)
+        data = data.filter(post => {
+          const postDate = new Date(post.created_at)
+          return postDate.toDateString() === filterDateObj.toDateString()
+        })
+      }
+      
       setPosts(data)
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to search posts')
     } finally {
       setLoading(false)
     }
+  }
+
+  const handleClearFilters = () => {
+    setSearchPostTerm('')
+    setFilterDate('')
+    fetchFeed()
   }
 
   if (!isAuthenticated) {
@@ -91,29 +116,45 @@ const HomePage = () => {
         <div className="mb-8 space-y-4">
           {/* Search Posts */}
           <form onSubmit={handleSearchPosts}>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={searchPostTerm}
-                onChange={(e) => setSearchPostTerm(e.target.value)}
-                placeholder="Search posts by title or content..."
-                className="flex-1 border border-black p-2 bg-white text-black font-bold"
-              />
-              <button
-                type="submit"
-                className="bg-black border border-black text-white font-bold py-2 px-6 hover:bg-white hover:text-black transition"
-              >
-                Search
-              </button>
-              {searching && (
+            <div className="space-y-2">
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={searchPostTerm}
+                  onChange={(e) => setSearchPostTerm(e.target.value)}
+                  placeholder="Search posts by title or content..."
+                  className="flex-1 border border-black p-2 bg-white text-black font-bold"
+                />
                 <button
-                  type="button"
-                  onClick={fetchFeed}
-                  className="border border-black bg-white text-black font-bold py-2 px-4 hover:bg-black hover:text-white transition"
+                  type="submit"
+                  className="bg-black border border-black text-white font-bold py-2 px-6 hover:bg-white hover:text-black transition"
                 >
-                  Clear
+                  Search
                 </button>
-              )}
+                {(searching || filterDate) && (
+                  <button
+                    type="button"
+                    onClick={handleClearFilters}
+                    className="border border-black bg-white text-black font-bold py-2 px-4 hover:bg-black hover:text-white transition"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+              <div className="flex gap-2">
+                <input
+                  type="date"
+                  value={filterDate}
+                  onChange={(e) => setFilterDate(e.target.value)}
+                  className="flex-1 border border-black p-2 bg-white text-black font-bold"
+                />
+                <button
+                  type="submit"
+                  className="bg-black border border-black text-white font-bold py-2 px-6 hover:bg-white hover:text-black transition"
+                >
+                  Filter by Date
+                </button>
+              </div>
             </div>
           </form>
 
