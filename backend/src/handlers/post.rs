@@ -1,5 +1,5 @@
 use crate::middleware::auth::get_current_user;
-use crate::models::post::{CreatePost, Post};
+use crate::models::post::{CreatePost, Post, PostResponse};
 use actix_web::{HttpResponse, Result, web};
 use sqlx::PgPool;
 
@@ -23,12 +23,14 @@ pub async fn get_all_posts(
     .await
     .unwrap_or(0);
 
-    let posts = sqlx::query_as!(
-        Post,
-        "SELECT id, user_id, title, content, created_at, updated_at FROM posts ORDER BY created_at DESC LIMIT $1 OFFSET $2",
-        limit,
-        offset
+    let posts = sqlx::query_as::<_, PostResponse>(
+        "SELECT p.id, p.user_id, u.username, p.title, p.content, p.created_at, p.updated_at 
+         FROM posts p 
+         JOIN users u ON p.user_id = u.id 
+         ORDER BY p.created_at DESC LIMIT $1 OFFSET $2"
     )
+    .bind(limit)
+    .bind(offset)
     .fetch_all(pool.get_ref())
     .await
     .map_err(|_| actix_web::error::ErrorInternalServerError("Database error"))?;
@@ -60,13 +62,14 @@ pub async fn search_posts(
 
     let search_query = format!("{}:*", search_term.trim());
     
-    let posts = sqlx::query_as!(
-        Post,
-        "SELECT id, user_id, title, content, created_at, updated_at FROM posts 
-         WHERE to_tsvector('english', title || ' ' || content) @@ to_tsquery('english', $1)
-         ORDER BY ts_rank(to_tsvector('english', title || ' ' || content), to_tsquery('english', $1)) DESC, created_at DESC",
-        search_query
+    let posts = sqlx::query_as::<_, PostResponse>(
+        "SELECT p.id, p.user_id, u.username, p.title, p.content, p.created_at, p.updated_at 
+         FROM posts p 
+         JOIN users u ON p.user_id = u.id
+         WHERE to_tsvector('english', p.title || ' ' || p.content) @@ to_tsquery('english', $1)
+         ORDER BY ts_rank(to_tsvector('english', p.title || ' ' || p.content), to_tsquery('english', $1)) DESC, p.created_at DESC"
     )
+    .bind(search_query)
     .fetch_all(pool.get_ref())
     .await
     .map_err(|_| actix_web::error::ErrorInternalServerError("Database error"))?;
@@ -81,11 +84,13 @@ pub async fn get_posts(
     let current_user = get_current_user(&req)
         .ok_or_else(|| actix_web::error::ErrorUnauthorized("Not authenticated"))?;
 
-    let posts = sqlx::query_as!(
-        Post,
-        "SELECT id, user_id, title, content, created_at, updated_at FROM posts WHERE user_id = $1 ORDER BY created_at DESC",
-        current_user.sub
+    let posts = sqlx::query_as::<_, PostResponse>(
+        "SELECT p.id, p.user_id, u.username, p.title, p.content, p.created_at, p.updated_at 
+         FROM posts p 
+         JOIN users u ON p.user_id = u.id 
+         WHERE p.user_id = $1 ORDER BY p.created_at DESC"
     )
+    .bind(current_user.sub)
     .fetch_all(pool.get_ref())
     .await
     .map_err(|_| actix_web::error::ErrorInternalServerError("Database error"))?;
@@ -126,12 +131,14 @@ pub async fn get_post(
 
     let post_id = path.into_inner();
 
-    let post = sqlx::query_as!(
-        Post,
-        "SELECT id, user_id, title, content, created_at, updated_at FROM posts WHERE id = $1 AND user_id = $2",
-        post_id,
-        current_user.sub
+    let post = sqlx::query_as::<_, PostResponse>(
+        "SELECT p.id, p.user_id, u.username, p.title, p.content, p.created_at, p.updated_at 
+         FROM posts p 
+         JOIN users u ON p.user_id = u.id 
+         WHERE p.id = $1 AND p.user_id = $2"
     )
+    .bind(post_id)
+    .bind(current_user.sub)
     .fetch_optional(pool.get_ref())
     .await
     .map_err(|_| actix_web::error::ErrorInternalServerError("Database error"))?;

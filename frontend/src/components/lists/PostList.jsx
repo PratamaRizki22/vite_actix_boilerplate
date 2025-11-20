@@ -30,7 +30,7 @@ const PostList = () => {
                 <h3 className="text-lg font-semibold mb-2">{post.title}</h3>
                 <p className="text-gray-700 mb-3">{post.content}</p>
                 <small className="text-gray-500">
-                  User ID: {post.user_id} | Post ID: {post.id}
+                  By {post.username} | Post ID: {post.id}
                 </small>
               </div>
               <Button 

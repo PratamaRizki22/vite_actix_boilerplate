@@ -160,7 +160,7 @@ const HomePage = () => {
                 <h3 className="text-xl font-bold text-black mb-2">{post.title}</h3>
                 <p className="text-black mb-4 line-clamp-3">{post.content}</p>
                 <div className="text-xs text-black mb-4 font-bold">
-                  <p>By User ID: {post.user_id}</p>
+                <p>By {post.username}</p>
                   <p>Posted: {new Date(post.created_at).toLocaleDateString()}</p>
                 </div>
                 <Link to="/posts">
