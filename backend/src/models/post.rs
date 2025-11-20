@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use chrono::NaiveDateTime;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Post {
@@ -6,6 +7,8 @@ pub struct Post {
     pub user_id: i32,
     pub title: String,
     pub content: String,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
 }
 
 #[derive(Debug, Deserialize)]
@@ -13,3 +16,4 @@ pub struct CreatePost {
     pub title: String,
     pub content: String,
 }
+

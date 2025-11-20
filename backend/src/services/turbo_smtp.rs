@@ -62,7 +62,7 @@ impl TurboSmtpService {
             </div>
         </div>
 
-        <p><strong>This code will expire in 10 minutes.</strong></p>
+        <p><strong>This code will expire in 3 minutes.</strong></p>
         <p>If you didn't request this verification, please ignore this email.</p>
 
         <hr style="border: none; border-top: 1px solid #E5E7EB; margin: 30px 0;">

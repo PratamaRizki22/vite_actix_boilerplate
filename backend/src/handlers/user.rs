@@ -229,3 +229,66 @@ pub async fn delete_user(
         })))
     }
 }
+
+pub async fn search_users(
+    pool: web::Data<PgPool>,
+    query: web::Query<std::collections::HashMap<String, String>>,
+) -> Result<HttpResponse> {
+    let search_term = query.get("search").cloned().unwrap_or_default();
+    let page = query
+        .get("page")
+        .and_then(|p| p.parse::<i64>().ok())
+        .unwrap_or(1)
+        .max(1);
+    let limit: i64 = 20;
+    let offset = (page - 1) * limit;
+    
+    if search_term.is_empty() {
+        return Ok(HttpResponse::BadRequest().json(serde_json::json!({
+            "error": "Search term is required"
+        })));
+    }
+
+    // Use full-text search with to_tsquery for better performance
+    let search_query = format!("{}:*", search_term.trim());
+    
+    // Get total count
+    let count_result = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM users WHERE to_tsvector('english', username) @@ to_tsquery('english', $1)"
+    )
+    .bind(&search_query)
+    .fetch_one(pool.get_ref())
+    .await
+    .unwrap_or(0);
+
+    // Get paginated results with ranking
+    let users = sqlx::query_as!(
+        User,
+        "SELECT id, username, email, password, role, wallet_address, email_verified, created_at, updated_at 
+         FROM users 
+         WHERE to_tsvector('english', username) @@ to_tsquery('english', $1)
+         ORDER BY ts_rank(to_tsvector('english', username), to_tsquery('english', $1)) DESC, username ASC
+         LIMIT $2 OFFSET $3",
+        search_query,
+        limit,
+        offset
+    )
+    .fetch_all(pool.get_ref())
+    .await
+    .map_err(|_| actix_web::error::ErrorInternalServerError("Database error"))?;
+
+    let user_responses: Vec<UserResponse> = users.into_iter().map(UserResponse::from).collect();
+    
+    let total_pages = (count_result + limit - 1) / limit;
+
+    Ok(HttpResponse::Ok().json(serde_json::json!({
+        "data": user_responses,
+        "pagination": {
+            "page": page,
+            "limit": limit,
+            "total": count_result,
+            "total_pages": total_pages
+        }
+    })))
+}
+

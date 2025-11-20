@@ -1,23 +1,40 @@
 import api from './api';
 
-export const userService = {
-  getAll: async () => {
-    const response = await api.get('/api/users');
+const userService = {
+  // Get all users
+  getAllUsers: async () => {
+    const response = await api.get('/users');
     return response.data;
   },
 
-  getById: async (id) => {
-    const response = await api.get(`/api/users/${id}`);
+  // Search users by username with pagination
+  searchUsers: async (searchTerm, page = 1) => {
+    const response = await api.get('/users/search', {
+      params: {
+        search: searchTerm,
+        page: page
+      }
+    });
     return response.data;
   },
 
-  create: async (userData) => {
-    const response = await api.post('/api/users', userData);
+  // Get single user by ID
+  getUserById: async (id) => {
+    const response = await api.get(`/users/${id}`);
     return response.data;
   },
 
-  delete: async (id) => {
-    const response = await api.delete(`/api/users/${id}`);
+  // Update user (only own profile or admin)
+  updateUser: async (id, userData) => {
+    const response = await api.put(`/users/${id}`, userData);
     return response.data;
-  }
+  },
+
+  // Delete user
+  deleteUser: async (id) => {
+    await api.delete(`/users/${id}`);
+    return { success: true };
+  },
 };
+
+export default userService;

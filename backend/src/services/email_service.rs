@@ -39,9 +39,11 @@ impl EmailService {
 
     pub fn store_verification_code(email: &str, code: &str) {
         let mut codes = VERIFICATION_CODES.lock().unwrap();
-        let expires_at = Utc::now() + Duration::minutes(10);
+        // Remove any old code for this email first
+        codes.remove(email);
+        let expires_at = Utc::now() + Duration::minutes(3);
         codes.insert(email.to_string(), (code.to_string(), expires_at));
-        println!("Stored verification code {} for email {}", code, email);
+        println!("Stored verification code {} for email {} (expires in 3 minutes)", code, email);
     }
 
     pub fn verify_code(email: &str, code: &str) -> bool {

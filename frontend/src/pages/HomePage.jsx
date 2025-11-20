@@ -1,40 +1,179 @@
-import { Link } from 'react-router-dom'
-import Button from '../components/common/Button'
-import Card from '../components/common/Card'
+import { Link, useNavigate } from 'react-router-dom'
+import { useAuth } from '../context/AuthContext'
+import { useState, useEffect } from 'react'
+import postService from '../services/postService'
 
 const HomePage = () => {
-  return (
-    <Card>
-      <h2 className="text-2xl font-bold mb-4">Welcome to Wallet Core App</h2>
-      <p className="text-gray-600 mb-6">This is a boilerplate with React Router setup for future scalability.</p>
-      
-      <div className="mb-6">
-        <h3 className="text-lg font-semibold mb-3">Quick Links:</h3>
-        <div className="flex gap-3">
-          <Link to="/users">
-            <Button variant="primary">
-              Manage Users
-            </Button>
-          </Link>
-          <Link to="/posts">
-            <Button variant="primary">
-              Manage Posts
-            </Button>
-          </Link>
+  const { isAuthenticated, user } = useAuth()
+  const navigate = useNavigate()
+  const [posts, setPosts] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [searchPostTerm, setSearchPostTerm] = useState('')
+  const [searching, setSearching] = useState(false)
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      fetchFeed()
+    }
+  }, [isAuthenticated])
+
+  const fetchFeed = async () => {
+    try {
+      setLoading(true)
+      setError('')
+      const data = await postService.getFeed()
+      setPosts(data)
+      setSearching(false)
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to fetch posts')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleSearchPosts = async (e) => {
+    e.preventDefault()
+    if (!searchPostTerm.trim()) {
+      fetchFeed()
+      return
+    }
+
+    try {
+      setLoading(true)
+      setError('')
+      setSearching(true)
+      const data = await postService.searchPosts(searchPostTerm)
+      setPosts(data)
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to search posts')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-[60vh] flex items-center justify-center">
+        <div className="border border-black p-8 w-full max-w-md">
+          <h1 className="text-3xl font-bold text-black mb-6 text-center">Welcome</h1>
+          <p className="text-black mb-6 text-center">Please log in or register to continue.</p>
+          
+          <div className="space-y-4">
+            <button
+              onClick={() => navigate('/login')}
+              className="w-full bg-white border border-black text-black font-bold py-2 px-4 hover:bg-black hover:text-white transition"
+            >
+              Login
+            </button>
+            <button
+              onClick={() => navigate('/register')}
+              className="w-full bg-white border border-black text-black font-bold py-2 px-4 hover:bg-black hover:text-white transition"
+            >
+              Register
+            </button>
+          </div>
         </div>
       </div>
+    )
+  }
 
-      <div>
-        <h4 className="text-md font-semibold mb-2">Features:</h4>
-        <ul className="list-disc list-inside space-y-1 text-gray-700">
-          <li>React Router for navigation</li>
-          <li>Axios for API calls</li>
-          <li>Custom hooks for state management</li>
-          <li>Modular component structure</li>
-          <li>Ready for Context API when needed</li>
-        </ul>
+  return (
+    <div className="container mx-auto px-4 py-8">
+      <div className="max-w-4xl mx-auto">
+        {/* Header */}
+        <div className="mb-8">
+          <h1 className="text-4xl font-bold text-black mb-2">Feed</h1>
+          <p className="text-lg text-black">Welcome, {user?.username || 'User'}</p>
+        </div>
+
+        {/* Search & Actions */}
+        <div className="mb-8 space-y-4">
+          {/* Search Posts */}
+          <form onSubmit={handleSearchPosts}>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={searchPostTerm}
+                onChange={(e) => setSearchPostTerm(e.target.value)}
+                placeholder="Search posts by title or content..."
+                className="flex-1 border border-black p-2 bg-white text-black font-bold"
+              />
+              <button
+                type="submit"
+                className="bg-black border border-black text-white font-bold py-2 px-6 hover:bg-white hover:text-black transition"
+              >
+                Search
+              </button>
+              {searching && (
+                <button
+                  type="button"
+                  onClick={fetchFeed}
+                  className="border border-black bg-white text-black font-bold py-2 px-4 hover:bg-black hover:text-white transition"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          </form>
+
+          {/* Action Buttons - Create Post & Users */}
+          <div className="flex gap-2">
+            <Link to="/posts" className="flex-1">
+              <button className="w-full bg-black border border-black text-white font-bold py-2 px-4 hover:bg-white hover:text-black transition">
+                Create Post
+              </button>
+            </Link>
+            {user?.role === 'admin' && (
+              <Link to="/users" className="flex-1">
+                <button className="w-full bg-white border border-black text-black font-bold py-2 px-4 hover:bg-black hover:text-white transition">
+                  Users Management
+                </button>
+              </Link>
+            )}
+          </div>
+        </div>
+
+        {/* Error */}
+        {error && (
+          <div className="border border-black bg-white p-4 mb-6 text-black font-bold">
+            {error}
+          </div>
+        )}
+
+        {/* Posts Feed */}
+        {loading ? (
+          <div className="text-center text-black">Loading posts...</div>
+        ) : posts.length === 0 ? (
+          <div className="text-center text-black border border-black p-8">
+            <p className="font-bold mb-4">No posts yet</p>
+            <Link to="/posts">
+              <button className="bg-black border border-black text-white font-bold py-2 px-4 hover:bg-white hover:text-black transition">
+                Create the first post
+              </button>
+            </Link>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {posts.map((post) => (
+              <div key={post.id} className="border border-black p-6 bg-white">
+                <h3 className="text-xl font-bold text-black mb-2">{post.title}</h3>
+                <p className="text-black mb-4 line-clamp-3">{post.content}</p>
+                <div className="text-xs text-black mb-4 font-bold">
+                  <p>By User ID: {post.user_id}</p>
+                  <p>Posted: {new Date(post.created_at).toLocaleDateString()}</p>
+                </div>
+                <Link to="/posts">
+                  <button className="bg-white border border-black text-black font-bold px-3 py-1 hover:bg-black hover:text-white transition">
+                    View More →
+                  </button>
+                </Link>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
-    </Card>
+    </div>
   )
 }
 

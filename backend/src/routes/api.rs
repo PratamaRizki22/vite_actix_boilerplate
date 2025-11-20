@@ -3,6 +3,7 @@ use actix_web::web;
 use crate::auth::account::{add_email, connect_wallet, get_sessions, logout_all_sessions, logout_other_sessions, logout_session};
 use crate::auth::debug::{blacklist_stats, cleanup_blacklist};
 use crate::auth::email::{debug_codes, send_verification, verify_email};
+use crate::auth::google::google_callback;
 use crate::auth::password::{request_password_reset, reset_password, debug_password_reset_tokens, test_email_service, get_rate_limit_stats};
 use crate::auth::security::{setup_2fa, verify_2fa};
 use crate::auth::traditional::{login, logout, me, register};
@@ -18,6 +19,7 @@ pub fn config(cfg: &mut web::ServiceConfig) {
                 web::scope("/auth")
                     .route("/login", web::post().to(login))
                     .route("/register", web::post().to(register))
+                    .route("/google/callback", web::post().to(google_callback))
                     .route(
                         "/setup-2fa",
                         web::post().to(setup_2fa).wrap(AuthMiddleware::new()),
@@ -65,6 +67,7 @@ pub fn config(cfg: &mut web::ServiceConfig) {
                 web::scope("/users")
                     .wrap(AuthMiddleware::require_role("admin"))
                     .route("", web::get().to(user::get_users))
+                    .route("/search", web::get().to(user::search_users))
                     .route("", web::post().to(user::create_user))
                     .route("/{id}", web::get().to(user::get_user))
                     .route("/{id}", web::put().to(user::update_user))
@@ -74,6 +77,8 @@ pub fn config(cfg: &mut web::ServiceConfig) {
             .service(
                 web::scope("/posts")
                     .wrap(AuthMiddleware::new())
+                    .route("/feed", web::get().to(post::get_all_posts))
+                    .route("/search", web::get().to(post::search_posts))
                     .route("", web::get().to(post::get_posts))
                     .route("", web::post().to(post::create_post))
                     .route("/{id}", web::get().to(post::get_post))

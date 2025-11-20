@@ -71,7 +71,11 @@ pub async fn verify_email(
     pool: web::Data<PgPool>,
     req: web::Json<VerifyEmailRequest>,
 ) -> Result<HttpResponse> {
+    println!("Verify email request - Email: {}, Code: {}", req.email, req.code);
+    
     let is_valid = EmailService::verify_code(&req.email, &req.code);
+    
+    println!("Verification result - Valid: {}", is_valid);
 
     if is_valid {
         // Update email_verified status in database
@@ -83,11 +87,13 @@ pub async fn verify_email(
         .await
         .map_err(|_| actix_web::error::ErrorInternalServerError("Database update failed"))?;
 
+        println!("Email verified successfully for: {}", req.email);
         Ok(HttpResponse::Ok().json(VerifyEmailResponse {
             message: "Email verified successfully".to_string(),
             verified: true,
         }))
     } else {
+        println!("Email verification failed for: {} with code: {}", req.email, req.code);
         Ok(HttpResponse::BadRequest().json(VerifyEmailResponse {
             message: "Invalid or expired verification code".to_string(),
             verified: false,

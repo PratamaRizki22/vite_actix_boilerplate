@@ -50,6 +50,14 @@ pub async fn verify_2fa(
 ) -> Result<HttpResponse> {
     println!("Verify 2FA called with code: {}", verify_data.code);
 
+    // Validate code format
+    if verify_data.code.is_empty() || verify_data.code.len() < 6 {
+        return Ok(HttpResponse::BadRequest().json(TOTPVerifyResponse {
+            success: false,
+            message: "Code must be at least 6 digits".to_string(),
+        }));
+    }
+
     let current_user = get_current_user(&req)
         .ok_or_else(|| actix_web::error::ErrorUnauthorized("Not authenticated"))?;
 
@@ -68,27 +76,34 @@ pub async fn verify_2fa(
         .totp_secret
         .ok_or_else(|| actix_web::error::ErrorBadRequest("2FA not set up for this user"))?;
 
+    println!("TOTP secret exists for user");
+
     // Decode base32 secret
     let secret_bytes = base32::decode(base32::Alphabet::RFC4648 { padding: false }, &totp_secret)
         .ok_or_else(|| {
-        actix_web::error::ErrorInternalServerError("Invalid TOTP secret format")
-    })?;
+            println!("Failed to decode base32 secret");
+            actix_web::error::ErrorInternalServerError("Invalid TOTP secret format")
+        })?;
 
-    // Create TOTP instance
+    println!("Secret decoded successfully, length: {}", secret_bytes.len());
+
+    // Create TOTP instance with proper parameters (RFC 6238 standard)
     let totp = totp_rs::TOTP::new_unchecked(
         totp_rs::Algorithm::SHA1,
-        6,
-        1,
-        30,
+        6,              // 6-digit code
+        1,              // 1 digit (internal use)
+        30,             // 30 second period
         secret_bytes,
         Some("MyApp".to_string()),
         current_user.username.clone(),
     );
 
-    // Check if the provided code is valid
+    // Check if the provided code is valid with time window tolerance
+    // totp_rs has built-in ±1 step tolerance by default
     let is_valid = totp.check_current(&verify_data.code).unwrap_or(false);
+    
     println!(
-        "TOTP check result for code {}: {}",
+        "TOTP check result for code '{}': {} (with ±30s tolerance)",
         verify_data.code, is_valid
     );
 
@@ -110,7 +125,7 @@ pub async fn verify_2fa(
     } else {
         let response = TOTPVerifyResponse {
             success: false,
-            message: "Invalid 2FA code".to_string(),
+            message: "Invalid 2FA code. Please check your code and try again.".to_string(),
         };
         Ok(HttpResponse::BadRequest().json(response))
     }

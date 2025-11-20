@@ -31,7 +31,8 @@ async fn main() -> std::io::Result<()> {
         .unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string());
 
     let pool = PgPoolOptions::new()
-        .max_connections(5)
+        .max_connections(50)  // Increased from 5 to 50 for better concurrency
+        .acquire_timeout(std::time::Duration::from_secs(10))
         .connect(&database_url)
         .await
         .expect("Failed to connect database");

@@ -20,9 +20,9 @@ pub async fn login(
     req: HttpRequest,
     login_data: web::Json<LoginRequest>,
 ) -> Result<HttpResponse> {
-    // Rate limiting: 5 attempts per 15 minutes
+    // Rate limiting: 5 attempts per 3 minutes
     let (is_allowed, remaining, reset_seconds) = 
-        RateLimiter::check_limit(&req, "login", 5, 15);
+        RateLimiter::check_limit(&req, "login", 5, 3);
 
     if !is_allowed {
         return Ok(HttpResponse::TooManyRequests().json(serde_json::json!({
