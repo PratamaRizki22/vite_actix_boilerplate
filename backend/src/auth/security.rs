@@ -210,3 +210,31 @@ pub async fn debug_2fa(
 
     Ok(HttpResponse::Ok().json(debug_info))
 }
+
+pub async fn disable_2fa(
+    pool: web::Data<PgPool>,
+    req: HttpRequest,
+) -> Result<HttpResponse> {
+    let current_user = get_current_user(&req)
+        .ok_or_else(|| actix_web::error::ErrorUnauthorized("Not authenticated"))?;
+
+    println!("=== Disable 2FA Started ===");
+    println!("User: {} (ID: {})", current_user.username, current_user.sub);
+
+    // Disable 2FA in database
+    sqlx::query!(
+        "UPDATE users SET totp_enabled = false, totp_secret = NULL WHERE id = $1",
+        current_user.sub
+    )
+    .execute(pool.get_ref())
+    .await
+    .map_err(|_| actix_web::error::ErrorInternalServerError("Failed to disable 2FA"))?;
+
+    println!("✓ 2FA disabled for user {}", current_user.username);
+    println!("=== Disable 2FA End ===\n");
+
+    Ok(HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "message": "2FA has been successfully disabled for your account"
+    })))
+}

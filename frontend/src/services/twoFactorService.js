@@ -49,6 +49,29 @@ const twoFactorService = {
       throw error
     }
   },
+
+  /**
+   * Disable 2FA
+   * @returns {Promise<{success: boolean, message: string}>}
+   */
+  disable2FA: async () => {
+    try {
+      const token = localStorage.getItem('token')
+      const response = await axios.post(
+        `${API_BASE_URL}/api/auth/disable-2fa`,
+        {},
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      )
+      return response.data
+    } catch (error) {
+      console.error('2FA disable failed:', error)
+      throw error
+    }
+  },
 }
 
 export default twoFactorService

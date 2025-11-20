@@ -20,6 +20,7 @@ const ProfilePage = () => {
   const [loading, setLoading] = useState(false);
   const [verifyEmailLoading, setVerifyEmailLoading] = useState(false);
   const [linkWalletLoading, setLinkWalletLoading] = useState(false);
+  const [disable2FALoading, setDisable2FALoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [is2FAEnabled, setIs2FAEnabled] = useState(false);
@@ -75,6 +76,42 @@ const ProfilePage = () => {
     setSuccess('');
     setShow2FASetup(true);
     await load2FAQrCode();
+  };
+
+  const handleDisable2FA = async () => {
+    setError('');
+    setSuccess('');
+    setDisable2FALoading(true);
+
+    try {
+      const result = await twoFactorService.disable2FA();
+      if (result.success) {
+        setSuccess('2FA has been successfully disabled');
+        setIs2FAEnabled(false);
+        
+        // Refresh user data
+        const token = localStorage.getItem('token');
+        const userResponse = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/auth/me`, {
+          headers: {
+            Authorization: `Bearer ${token}`
+          }
+        });
+        if (userResponse.ok) {
+          const userData = await userResponse.json();
+          localStorage.setItem('user', JSON.stringify(userData));
+        }
+
+        // Auto-dismiss success message after 3 seconds
+        setTimeout(() => setSuccess(''), 3000);
+      } else {
+        setError(result.message || 'Failed to disable 2FA');
+      }
+    } catch (err) {
+      console.error('Disable 2FA error:', err);
+      setError(err.response?.data?.error || 'Failed to disable 2FA. Please try again.');
+    } finally {
+      setDisable2FALoading(false);
+    }
   };
 
   const copyToClipboard = () => {
@@ -557,15 +594,11 @@ const ProfilePage = () => {
                   </div>
                   <button
                     type="button"
-                    onClick={() => {
-                      if (window.confirm('Are you sure you want to disable 2FA? This will remove the extra security layer from your account.')) {
-                        // TODO: Implement disable 2FA
-                        setError('Disable 2FA functionality coming soon');
-                      }
-                    }}
-                    className="w-full px-4 py-2 border border-red-600 bg-red-50 text-red-700 font-bold hover:bg-red-600 hover:text-white transition"
+                    onClick={handleDisable2FA}
+                    disabled={disable2FALoading}
+                    className="w-full px-4 py-2 border border-red-600 bg-red-50 text-red-700 font-bold hover:bg-red-600 hover:text-white transition disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    Disable 2FA
+                    {disable2FALoading ? 'Disabling...' : 'Disable 2FA'}
                   </button>
                 </div>
               ) : (
