@@ -42,7 +42,7 @@ pub async fn web3_challenge(
 
     // Create message to sign
     let message = format!(
-        "Welcome to MyApp!\n\nPlease sign this message to authenticate with your wallet.\n\nAddress: {}\n\nChallenge: {}\n\nTimestamp: {}",
+        "Welcome to USH!\n\nPlease sign this message to authenticate with your wallet.\n\nAddress: {}\n\nChallenge: {}\n\nTimestamp: {}",
         challenge_data.address,
         challenge,
         SystemTime::now()
@@ -108,7 +108,7 @@ pub async fn web3_verify(
 
     // Create message for signing (same format as web3_challenge)
     let message = format!(
-        "Welcome to MyApp!\n\nPlease sign this message to authenticate with your wallet.\n\nAddress: {}\n\nChallenge: {}\n\nTimestamp: {}",
+        "Welcome to USH!\n\nPlease sign this message to authenticate with your wallet.\n\nAddress: {}\n\nChallenge: {}\n\nTimestamp: {}",
         verify_data.address,
         verify_data.challenge,
         SystemTime::now()

@@ -52,7 +52,7 @@ impl TurboSmtpService {
 </head>
 <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
     <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
-        <h2 style="color: #4F46E5;">Welcome to MyApp!</h2>
+        <h2 style="color: #4F46E5;">Welcome to USH!</h2>
         <p>Thank you for registering. To complete your account setup, please verify your email address.</p>
 
         <div style="background-color: #F3F4F6; padding: 20px; border-radius: 8px; margin: 20px 0;">
@@ -67,7 +67,7 @@ impl TurboSmtpService {
 
         <hr style="border: none; border-top: 1px solid #E5E7EB; margin: 30px 0;">
         <p style="color: #6B7280; font-size: 14px;">
-            This is an automated message from MyApp. Please do not reply to this email.
+            This is an automated message from USH. Please do not reply to this email.
         </p>
     </div>
 </body>
@@ -75,7 +75,7 @@ impl TurboSmtpService {
             verification_code
         );
 
-        let from_email = "MyApp <rizkipurnomo914@gmail.com>";
+        let from_email = "USH <rizkipurnomo914@gmail.com>";
         let to_email_full = to_email;
 
         println!("Attempting to send email:");
@@ -87,7 +87,7 @@ impl TurboSmtpService {
         let email = Message::builder()
             .from(from_email.parse()?)
             .to(to_email_full.parse()?)
-            .subject("Email Verification Code - MyApp")
+            .subject("Email Verification Code - USH")
             .singlepart(
                 lettre::message::SinglePart::html(html_body)
             )?;
@@ -151,7 +151,7 @@ impl TurboSmtpService {
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Password Reset - MyApp</title>
+    <title>Password Reset - USH</title>
     <style>
         body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif; }}
         .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
@@ -165,7 +165,7 @@ impl TurboSmtpService {
         <div class="container">
             <h2 style="color: #DC2626; margin-bottom: 20px;">🔐 Password Reset Request</h2>
             
-            <p>You have requested to reset your password for your MyApp account.</p>
+            <p>You have requested to reset your password for your USH account.</p>
             <p>If you didn't make this request, you can safely ignore this email.</p>
             
             <div style="text-align: center; margin: 30px 0;">
@@ -187,7 +187,7 @@ impl TurboSmtpService {
             <div class="footer">
                 <p><strong>Didn't request this?</strong></p>
                 <p>If you didn't request a password reset, your account is still secure. Someone else may have entered your email by mistake. Your password hasn't been changed.</p>
-                <p style="margin-bottom: 0; color: #999;">This is an automated message from MyApp. Please do not reply to this email.</p>
+                <p style="margin-bottom: 0; color: #999;">This is an automated message from USH. Please do not reply to this email.</p>
             </div>
         </div>
     </div>
@@ -196,13 +196,13 @@ impl TurboSmtpService {
             reset_token, reset_token
         );
 
-        let from_email = "MyApp <rizkipurnomo914@gmail.com>";
+        let from_email = "USH <rizkipurnomo914@gmail.com>";
         let to_email_full = to_email;
 
         let email = Message::builder()
             .from(from_email.parse()?)
             .to(to_email_full.parse()?)
-            .subject("🔐 Password Reset - MyApp")
+            .subject("🔐 Password Reset - USH")
             .singlepart(
                 lettre::message::SinglePart::html(html_body)
             )?;

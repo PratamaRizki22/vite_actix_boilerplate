@@ -31,7 +31,7 @@ pub async fn setup_2fa(pool: web::Data<PgPool>, req: HttpRequest) -> Result<Http
 
     // Generate QR code URL manually
     let qr_code_url = format!(
-        "otpauth://totp/MyApp:{}?secret={}&issuer=MyApp&algorithm=SHA1&digits=6&period=30",
+        "otpauth://totp/USH:{}?secret={}&issuer=USH&algorithm=SHA1&digits=6&period=30",
         current_user.username, secret_base32
     );
 
@@ -94,7 +94,7 @@ pub async fn verify_2fa(
         1,              // 1 digit (internal use)
         30,             // 30 second period
         secret_bytes,
-        Some("MyApp".to_string()),
+        Some("USH".to_string()),
         current_user.username.clone(),
     );
 
