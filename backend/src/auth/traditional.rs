@@ -40,7 +40,7 @@ pub async fn login(
 
     let user = sqlx::query_as!(
         User,
-        "SELECT id, username, email, password, role, wallet_address, email_verified, created_at, updated_at
+        "SELECT id, username, email, password, role, wallet_address, email_verified, totp_enabled, created_at, updated_at
          FROM users WHERE username = $1 OR email = $1 OR wallet_address = $1",
         login_identifier
     )
@@ -377,16 +377,31 @@ pub async fn logout(req: HttpRequest, pool: web::Data<PgPool>) -> Result<HttpRes
     })))
 }
 
-pub async fn me(req: HttpRequest) -> Result<HttpResponse> {
+pub async fn me(
+    pool: web::Data<PgPool>,
+    req: HttpRequest,
+) -> Result<HttpResponse> {
     let current_user = get_current_user(&req)
         .ok_or_else(|| actix_web::error::ErrorUnauthorized("Not authenticated"))?;
 
+    // Fetch full user data from database to get totp_enabled status
+    let user = sqlx::query_as!(
+        User,
+        "SELECT id, username, email, password, role, wallet_address, email_verified, totp_enabled, created_at, updated_at
+         FROM users WHERE id = $1",
+        current_user.sub
+    )
+    .fetch_optional(pool.get_ref())
+    .await
+    .map_err(|_| actix_web::error::ErrorInternalServerError("Database error"))?;
+
+    let user = user
+        .ok_or_else(|| actix_web::error::ErrorUnauthorized("User not found"))?;
+
+    let user_response = UserResponse::from(user);
+
     Ok(HttpResponse::Ok().json(serde_json::json!({
-        "user": {
-            "id": current_user.sub,
-            "username": current_user.username,
-            "role": current_user.role
-        }
+        "user": user_response
     })))
 }
 
@@ -404,7 +419,7 @@ pub async fn register(
         User,
         "INSERT INTO users (username, email, password, role, email_verified)
          VALUES ($1, $2, $3, 'user', false)
-         RETURNING id, username, email, password, role, wallet_address, email_verified, created_at, updated_at",
+         RETURNING id, username, email, password, role, wallet_address, email_verified, totp_enabled, created_at, updated_at",
         temp_username,
         register_data.email,
         hashed_password

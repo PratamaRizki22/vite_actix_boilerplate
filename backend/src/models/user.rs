@@ -12,6 +12,7 @@ pub struct User {
     pub role: String,
     pub wallet_address: Option<String>,
     pub email_verified: bool,
+    pub totp_enabled: Option<bool>,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
 }
@@ -40,6 +41,7 @@ pub struct UserResponse {
     pub role: String,
     pub wallet_address: Option<String>,
     pub email_verified: bool,
+    pub two_factor_enabled: bool,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
 }
@@ -53,6 +55,7 @@ impl From<User> for UserResponse {
             role: user.role,
             wallet_address: user.wallet_address,
             email_verified: user.email_verified,
+            two_factor_enabled: user.totp_enabled.unwrap_or(false),
             created_at: user.created_at,
             updated_at: user.updated_at,
         }

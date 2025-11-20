@@ -9,7 +9,7 @@ use crate::utils::validation::{validate_username, validate_email, validate_passw
 pub async fn get_users(pool: web::Data<PgPool>) -> Result<HttpResponse> {
     let users = sqlx::query_as!(
         User,
-        "SELECT id, username, email, password, role, wallet_address, email_verified, created_at, updated_at FROM users"
+        "SELECT id, username, email, password, role, wallet_address, email_verified, totp_enabled, created_at, updated_at FROM users"
     )
     .fetch_all(pool.get_ref())
     .await
@@ -26,7 +26,7 @@ pub async fn get_user(path: web::Path<i32>, pool: web::Data<PgPool>) -> Result<H
 
     let user = sqlx::query_as!(
         User,
-        "SELECT id, username, email, password, role, wallet_address, email_verified, created_at, updated_at FROM users WHERE id = $1",
+        "SELECT id, username, email, password, role, wallet_address, email_verified, totp_enabled, created_at, updated_at FROM users WHERE id = $1",
         user_id
     )
     .fetch_optional(pool.get_ref())
@@ -76,7 +76,7 @@ pub async fn create_user(
         User,
         "INSERT INTO users (username, email, password, role, email_verified)
          VALUES ($1, $2, $3, $4, false)
-         RETURNING id, username, email, password, role, wallet_address, email_verified, created_at, updated_at",
+         RETURNING id, username, email, password, role, wallet_address, email_verified, totp_enabled, created_at, updated_at",
         user_data.username,
         user_data.email,
         hashed_password,
@@ -184,7 +184,7 @@ pub async fn update_user(
     // Get updated user
     let user = sqlx::query_as!(
         User,
-        "SELECT id, username, email, password, role, wallet_address, email_verified, created_at, updated_at
+        "SELECT id, username, email, password, role, wallet_address, email_verified, totp_enabled, created_at, updated_at
          FROM users WHERE id = $1",
         user_id
     )
@@ -264,7 +264,7 @@ pub async fn search_users(
     // Get paginated results with ranking
     let users = sqlx::query_as!(
         User,
-        "SELECT id, username, email, password, role, wallet_address, email_verified, created_at, updated_at 
+        "SELECT id, username, email, password, role, wallet_address, email_verified, totp_enabled, created_at, updated_at 
          FROM users 
          WHERE to_tsvector('english', username) @@ to_tsquery('english', $1)
          ORDER BY ts_rank(to_tsvector('english', username), to_tsquery('english', $1)) DESC, username ASC

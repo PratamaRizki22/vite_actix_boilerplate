@@ -76,7 +76,7 @@ pub async fn google_callback(
     // Check if user exists, if not create them
     let user = match sqlx::query_as!(
         crate::models::user::User,
-        "SELECT id, username, email, password, role, wallet_address, email_verified, created_at, updated_at
+        "SELECT id, username, email, password, role, wallet_address, email_verified, totp_enabled, created_at, updated_at
          FROM users WHERE email = $1",
         email
     )
@@ -95,7 +95,7 @@ pub async fn google_callback(
                 crate::models::user::User,
                 "INSERT INTO users (username, email, password, role, email_verified, created_at, updated_at)
                  VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
-                 RETURNING id, username, email, password, role, wallet_address, email_verified, created_at, updated_at",
+                 RETURNING id, username, email, password, role, wallet_address, email_verified, totp_enabled, created_at, updated_at",
                 username,
                 email,
                 "google_oauth", // Placeholder password for OAuth users
@@ -161,6 +161,7 @@ pub async fn google_callback(
         role: user.role,
         wallet_address: user.wallet_address,
         email_verified: user.email_verified,
+        two_factor_enabled: user.totp_enabled.unwrap_or(false),
         created_at: user.created_at,
         updated_at: user.updated_at,
     };

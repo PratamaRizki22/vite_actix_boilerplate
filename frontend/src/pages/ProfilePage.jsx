@@ -35,6 +35,8 @@ const ProfilePage = () => {
       console.log('User data loaded:', user);
       setUsername(user.username || '');
       setEmail(user.email || '');
+      // Set 2FA status from user data
+      setIs2FAEnabled(user.two_factor_enabled || false);
     }
   }, [user]);
 
@@ -538,106 +540,136 @@ const ProfilePage = () => {
             <div className="border border-black p-6">
               <div className="flex justify-between items-center mb-4">
                 <h2 className="text-xl font-bold text-black">Two-Factor Authentication</h2>
+                {is2FAEnabled && (
+                  <span className="bg-green-50 text-green-700 px-3 py-1 border border-green-600 font-bold text-sm">
+                    ✓ Enabled
+                  </span>
+                )}
               </div>
 
-              {!show2FASetup ? (
+              {is2FAEnabled ? (
                 <div className="space-y-4">
                   <p className="text-black text-sm">
-                    Add an extra layer of security to your account with two-factor authentication (2FA).
+                    Two-factor authentication is active on your account. You will be required to enter a code from your authenticator app when logging in.
                   </p>
+                  <div className="p-4 border border-green-600 bg-green-50 text-green-700 font-bold text-sm rounded">
+                    <p>✓ Your account is protected with 2FA</p>
+                  </div>
                   <button
                     type="button"
-                    onClick={handle2FASetup}
-                    className="w-full px-4 py-2 border border-black bg-white text-black font-bold hover:bg-black hover:text-white transition"
+                    onClick={() => {
+                      if (window.confirm('Are you sure you want to disable 2FA? This will remove the extra security layer from your account.')) {
+                        // TODO: Implement disable 2FA
+                        setError('Disable 2FA functionality coming soon');
+                      }
+                    }}
+                    className="w-full px-4 py-2 border border-red-600 bg-red-50 text-red-700 font-bold hover:bg-red-600 hover:text-white transition"
                   >
-                    Enable 2FA
+                    Disable 2FA
                   </button>
                 </div>
               ) : (
-                <div className="space-y-6">
-                  {twoFALoading ? (
-                    <div className="text-center text-black">Loading 2FA setup...</div>
+                <>
+                  {!show2FASetup ? (
+                    <div className="space-y-4">
+                      <p className="text-black text-sm">
+                        Add an extra layer of security to your account with two-factor authentication (2FA).
+                      </p>
+                      <button
+                        type="button"
+                        onClick={handle2FASetup}
+                        className="w-full px-4 py-2 border border-black bg-white text-black font-bold hover:bg-black hover:text-white transition"
+                      >
+                        Enable 2FA
+                      </button>
+                    </div>
                   ) : (
-                    <>
-                      {/* QR Code Section */}
-                      <div>
-                        <p className="text-black font-bold mb-4">
-                          Step 1: Scan QR Code with Authenticator App
-                        </p>
-                        <div className="p-4 border border-black text-center bg-white">
-                          {qrCode ? (
-                            <QRCodeSVG
-                              value={qrCode}
-                              size={200}
-                              level="H"
-                              includeMargin={true}
-                              className="mx-auto"
-                            />
-                          ) : (
-                            <div className="w-48 h-48 mx-auto flex items-center justify-center bg-gray-100">
-                              <p className="text-black">Loading QR Code...</p>
+                    <div className="space-y-6">
+                      {twoFALoading ? (
+                        <div className="text-center text-black">Loading 2FA setup...</div>
+                      ) : (
+                        <>
+                          {/* QR Code Section */}
+                          <div>
+                            <p className="text-black font-bold mb-4">
+                              Step 1: Scan QR Code with Authenticator App
+                            </p>
+                            <div className="p-4 border border-black text-center bg-white">
+                              {qrCode ? (
+                                <QRCodeSVG
+                                  value={qrCode}
+                                  size={200}
+                                  level="H"
+                                  includeMargin={true}
+                                  className="mx-auto"
+                                />
+                              ) : (
+                                <div className="w-48 h-48 mx-auto flex items-center justify-center bg-gray-100">
+                                  <p className="text-black">Loading QR Code...</p>
+                                </div>
+                              )}
                             </div>
-                          )}
-                        </div>
-                      </div>
+                          </div>
 
-                      {/* Secret Key Section */}
-                      <div>
-                        <p className="text-black font-bold mb-2">
-                          Step 2: Or enter this code manually
-                        </p>
-                        <div className="flex items-center gap-2 mb-2">
-                          <input
-                            type="text"
-                            value={secret}
-                            readOnly
-                            className="flex-1 border border-black p-2 bg-white text-black font-mono text-sm"
-                          />
-                          <button
-                            type="button"
-                            onClick={copyToClipboard}
-                            className="bg-white border border-black text-black font-bold py-2 px-4 hover:bg-black hover:text-white transition"
-                          >
-                            {copied ? '✓ Copied' : 'Copy'}
-                          </button>
-                        </div>
-                        <p className="text-sm text-black">
-                          Save this secret in a safe place. You'll need it if you lose access to your authenticator app.
-                        </p>
-                      </div>
+                          {/* Secret Key Section */}
+                          <div>
+                            <p className="text-black font-bold mb-2">
+                              Step 2: Or enter this code manually
+                            </p>
+                            <div className="flex items-center gap-2 mb-2">
+                              <input
+                                type="text"
+                                value={secret}
+                                readOnly
+                                className="flex-1 border border-black p-2 bg-white text-black font-mono text-sm"
+                              />
+                              <button
+                                type="button"
+                                onClick={copyToClipboard}
+                                className="bg-white border border-black text-black font-bold py-2 px-4 hover:bg-black hover:text-white transition"
+                              >
+                                {copied ? '✓ Copied' : 'Copy'}
+                              </button>
+                            </div>
+                            <p className="text-sm text-black">
+                              Save this secret in a safe place. You'll need it if you lose access to your authenticator app.
+                            </p>
+                          </div>
 
-                      {/* Supported Apps */}
-                      <div className="p-4 border border-black bg-white">
-                        <p className="text-black font-bold mb-2">Supported Apps:</p>
-                        <ul className="list-disc list-inside text-black text-sm space-y-1">
-                          <li>Google Authenticator</li>
-                          <li>Microsoft Authenticator</li>
-                          <li>Authy</li>
-                          <li>FreeOTP</li>
-                          <li>1Password</li>
-                        </ul>
-                      </div>
+                          {/* Supported Apps */}
+                          <div className="p-4 border border-black bg-white">
+                            <p className="text-black font-bold mb-2">Supported Apps:</p>
+                            <ul className="list-disc list-inside text-black text-sm space-y-1">
+                              <li>Google Authenticator</li>
+                              <li>Microsoft Authenticator</li>
+                              <li>Authy</li>
+                              <li>FreeOTP</li>
+                              <li>1Password</li>
+                            </ul>
+                          </div>
 
-                      {/* Action Buttons */}
-                      <div className="space-y-2">
-                        <button
-                          type="button"
-                          onClick={() => navigate('/2fa-verify')}
-                          className="w-full px-4 py-2 border border-black bg-black text-white font-bold hover:bg-white hover:text-black transition"
-                        >
-                          Verify 2FA Code
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setShow2FASetup(false)}
-                          className="w-full px-4 py-2 border border-black bg-white text-black font-bold hover:bg-black hover:text-white transition"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </>
+                          {/* Action Buttons */}
+                          <div className="space-y-2">
+                            <button
+                              type="button"
+                              onClick={() => navigate('/2fa-verify', { state: { isSetup: true } })}
+                              className="w-full px-4 py-2 border border-black bg-black text-white font-bold hover:bg-white hover:text-black transition"
+                            >
+                              Verify 2FA Code
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setShow2FASetup(false)}
+                              className="w-full px-4 py-2 border border-black bg-white text-black font-bold hover:bg-black hover:text-white transition"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
                   )}
-                </div>
+                </>
               )}
             </div>
 

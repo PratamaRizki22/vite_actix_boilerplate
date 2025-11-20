@@ -145,7 +145,7 @@ pub async fn web3_verify(
     // Check if user exists, create if not
     let user_result = sqlx::query_as!(
         User,
-        "SELECT id, username, email, password, role, wallet_address, email_verified, created_at, updated_at FROM users WHERE wallet_address = $1",
+        "SELECT id, username, email, password, role, wallet_address, email_verified, totp_enabled, created_at, updated_at FROM users WHERE wallet_address = $1",
         verify_data.address
     )
     .fetch_optional(pool.get_ref())
@@ -164,7 +164,7 @@ pub async fn web3_verify(
                 User,
                 "INSERT INTO users (username, email, password, role, wallet_address, email_verified)
                  VALUES ($1, $2, $3, 'user', $4, true)
-                 RETURNING id, username, email, password, role, wallet_address, email_verified, created_at, updated_at",
+                 RETURNING id, username, email, password, role, wallet_address, email_verified, totp_enabled, created_at, updated_at",
                 username, // readable username
                 None::<String>, // null email for Web3 users
                 "web3_auth", // dummy password

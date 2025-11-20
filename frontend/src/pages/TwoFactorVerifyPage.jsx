@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
+import { useAuth } from '../context/AuthContext'
 import twoFactorService from '../services/twoFactorService'
 
 const TwoFactorVerifyPage = () => {
@@ -7,6 +8,11 @@ const TwoFactorVerifyPage = () => {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
+  const location = useLocation()
+  const { setUser } = useAuth()
+
+  // Determine if this is for setup (from profile) or login
+  const isSetup = location.pathname === '/2fa-verify' && location.state?.isSetup
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -22,7 +28,24 @@ const TwoFactorVerifyPage = () => {
     try {
       const result = await twoFactorService.verify2FA(code)
       if (result.success) {
-        navigate('/')
+        // If this is setup from profile, refresh user data and go back to profile
+        if (isSetup) {
+          const token = localStorage.getItem('token')
+          const userResponse = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/auth/me`, {
+            headers: {
+              Authorization: `Bearer ${token}`
+            }
+          })
+          if (userResponse.ok) {
+            const userData = await userResponse.json()
+            localStorage.setItem('user', JSON.stringify(userData))
+            setUser(userData)
+          }
+          navigate('/profile')
+        } else {
+          // Regular login flow
+          navigate('/')
+        }
       } else {
         setError(result.message || '2FA verification failed')
       }
@@ -80,10 +103,10 @@ const TwoFactorVerifyPage = () => {
 
         <div className="mt-6 text-center">
           <button
-            onClick={() => navigate('/login')}
+            onClick={() => navigate(isSetup ? '/profile' : '/login')}
             className="text-black font-bold border-b border-black hover:bg-black hover:text-white px-2 py-1"
           >
-            Back to Login
+            {isSetup ? 'Back to Profile' : 'Back to Login'}
           </button>
         </div>
       </div>
