@@ -5,7 +5,7 @@ use crate::auth::debug::{blacklist_stats, cleanup_blacklist};
 use crate::auth::email::{debug_codes, send_verification, verify_email};
 use crate::auth::google::google_callback;
 use crate::auth::password::{request_password_reset, reset_password, debug_password_reset_tokens, test_email_service, get_rate_limit_stats};
-use crate::auth::security::{setup_2fa, verify_2fa};
+use crate::auth::security::{setup_2fa, verify_2fa, debug_2fa};
 use crate::auth::traditional::{login, logout, me, register};
 use crate::auth::web3::{web3_challenge, web3_verify};
 use crate::handlers::{post, user};
@@ -27,6 +27,10 @@ pub fn config(cfg: &mut web::ServiceConfig) {
                     .route(
                         "/verify-2fa",
                         web::post().to(verify_2fa).wrap(AuthMiddleware::new()),
+                    )
+                    .route(
+                        "/debug-2fa",
+                        web::get().to(debug_2fa).wrap(AuthMiddleware::new()),
                     )
                     .route("/web3/challenge", web::post().to(web3_challenge))
                     .route("/web3/verify", web::post().to(web3_verify))

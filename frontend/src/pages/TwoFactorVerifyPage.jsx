@@ -67,8 +67,13 @@ const TwoFactorVerifyPage = () => {
         </p>
 
         {error && (
-          <div className="border border-black bg-white p-4 mb-6 text-black">
-            {error}
+          <div className="border border-red-600 bg-red-50 p-4 mb-6 text-red-700">
+            <p className="font-bold mb-2">❌ {error}</p>
+            <div className="text-sm space-y-1">
+              <p>• Make sure your device time is synchronized</p>
+              <p>• The code changes every 30 seconds</p>
+              <p>• Try the current code shown in your app</p>
+            </div>
           </div>
         )}
 
@@ -86,6 +91,7 @@ const TwoFactorVerifyPage = () => {
               placeholder="000000"
               className="w-full border border-black p-3 bg-white text-black text-center text-2xl font-mono tracking-widest"
               disabled={loading}
+              autoFocus
             />
             <p className="text-sm text-black mt-2">
               {code.length}/6 digits
@@ -100,6 +106,15 @@ const TwoFactorVerifyPage = () => {
             {loading ? 'Verifying...' : 'Verify'}
           </button>
         </form>
+
+        <div className="mt-6 border-t border-black pt-4">
+          <p className="text-xs text-black mb-3 font-bold">Troubleshooting:</p>
+          <ul className="text-xs text-black space-y-2 mb-4">
+            <li>• <strong>Invalid code?</strong> Check if your device clock is correct</li>
+            <li>• <strong>App not working?</strong> Reinstall the authenticator app</li>
+            <li>• <strong>Codes not matching?</strong> Try the next code after waiting 5 seconds</li>
+          </ul>
+        </div>
 
         <div className="mt-6 text-center">
           <button
