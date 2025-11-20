@@ -30,6 +30,8 @@ const UserProfilePage = () => {
 
       // Fetch user data
       const response = await userService.getAllUsers()
+      console.log('Users response:', response)
+      
       const foundUser = response.find(u => u.id === parseInt(targetUserId))
       
       if (!foundUser) {
@@ -42,10 +44,13 @@ const UserProfilePage = () => {
 
       // Fetch all posts and filter by user
       const posts = await postService.getFeed()
+      console.log('Posts response:', posts)
+      
       const filtered = posts.filter(p => p.user_id === parseInt(targetUserId))
       setUserPosts(filtered)
     } catch (err) {
-      setError(err.response?.data?.error || 'Failed to fetch user profile')
+      console.error('Fetch user profile error:', err)
+      setError(err.response?.data?.error || err.message || 'Failed to fetch user profile')
     } finally {
       setLoading(false)
     }

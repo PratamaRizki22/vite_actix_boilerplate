@@ -163,9 +163,9 @@ const HomePage = () => {
                 <p>By {post.username}</p>
                   <p>Posted: {new Date(post.created_at).toLocaleDateString()}</p>
                 </div>
-                <Link to="/posts">
+                <Link to={`/user/${post.user_id}`}>
                   <button className="bg-white border border-black text-black font-bold px-3 py-1 hover:bg-black hover:text-white transition">
-                    View More →
+                    View Profile →
                   </button>
                 </Link>
               </div>
