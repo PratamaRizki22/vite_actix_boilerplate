@@ -11,6 +11,7 @@ const HomePage = () => {
   const [error, setError] = useState('')
   const [searchPostTerm, setSearchPostTerm] = useState('')
   const [filterDate, setFilterDate] = useState('')
+  const [showDateFilter, setShowDateFilter] = useState(false)
   const [searching, setSearching] = useState(false)
 
   useEffect(() => {
@@ -113,49 +114,76 @@ const HomePage = () => {
         </div>
 
         {/* Search & Actions */}
-        <div className="mb-8 space-y-4">
-          {/* Search Posts */}
-          <form onSubmit={handleSearchPosts}>
-            <div className="space-y-2">
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={searchPostTerm}
-                  onChange={(e) => setSearchPostTerm(e.target.value)}
-                  placeholder="Search posts by title or content..."
-                  className="flex-1 border border-black p-2 bg-white text-black font-bold"
-                />
+        <div className="mb-8">
+          {/* Search Bar */}
+          <form onSubmit={handleSearchPosts} className="space-y-3">
+            {/* Search Input Row */}
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={searchPostTerm}
+                onChange={(e) => setSearchPostTerm(e.target.value)}
+                placeholder="Search posts..."
+                className="flex-1 border border-black p-3 bg-white text-black font-bold"
+              />
+              <button
+                type="submit"
+                className="bg-black border border-black text-white font-bold py-3 px-8 hover:bg-white hover:text-black transition"
+              >
+                Search
+              </button>
+              
+              <button
+                type="button"
+                onClick={() => setShowDateFilter(!showDateFilter)}
+                className="border-2 border-black bg-white text-black font-bold py-2 px-4 hover:bg-black hover:text-white transition"
+              >
+                {showDateFilter ? '▼' : '▶'} Date
+              </button>
+
+              {filterDate && (
                 <button
-                  type="submit"
-                  className="bg-black border border-black text-white font-bold py-2 px-6 hover:bg-white hover:text-black transition"
+                  type="button"
+                  onClick={handleClearFilters}
+                  className="border border-black bg-white text-black font-bold py-2 px-4 hover:bg-black hover:text-white transition"
                 >
-                  Search
+                  Reset
                 </button>
-                {(searching || filterDate) && (
-                  <button
-                    type="button"
-                    onClick={handleClearFilters}
-                    className="border border-black bg-white text-black font-bold py-2 px-4 hover:bg-black hover:text-white transition"
-                  >
-                    Clear
-                  </button>
-                )}
-              </div>
+              )}
+            </div>
+
+            {/* Date Picker - Show when opened */}
+            {showDateFilter && (
               <div className="flex gap-2">
                 <input
                   type="date"
                   value={filterDate}
-                  onChange={(e) => setFilterDate(e.target.value)}
+                  onChange={(e) => {
+                    setFilterDate(e.target.value)
+                    setSearching(true)
+                  }}
                   className="flex-1 border border-black p-2 bg-white text-black font-bold"
+                  autoFocus
                 />
                 <button
-                  type="submit"
-                  className="bg-black border border-black text-white font-bold py-2 px-6 hover:bg-white hover:text-black transition"
+                  type="button"
+                  onClick={() => setShowDateFilter(false)}
+                  className="border border-black bg-white text-black font-bold py-2 px-4 hover:bg-black hover:text-white transition"
                 >
-                  Filter by Date
+                  Close
                 </button>
               </div>
-            </div>
+            )}
+
+            {filterDate && (
+              <div className="text-black font-bold text-sm bg-gray-100 p-2 border border-black">
+                Filtering by: {new Date(filterDate).toLocaleDateString('en-US', { 
+                  year: 'numeric', 
+                  month: 'short', 
+                  day: 'numeric' 
+                })}
+              </div>
+            )}
           </form>
 
           {/* Action Buttons - Create Post & Users */}
