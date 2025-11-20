@@ -26,7 +26,11 @@ const router = createBrowserRouter([
     children: [
       {
         index: true,
-        element: <HomePage />
+        element: (
+          <ProtectedRoute>
+            <HomePage />
+          </ProtectedRoute>
+        )
       },
       {
         path: 'login',
@@ -54,11 +58,19 @@ const router = createBrowserRouter([
       },
       {
         path: 'profile',
-        element: <ProfilePage />
+        element: (
+          <ProtectedRoute>
+            <ProfilePage />
+          </ProtectedRoute>
+        )
       },
       {
         path: 'user/:userId',
-        element: <UserProfilePage />
+        element: (
+          <ProtectedRoute>
+            <UserProfilePage />
+          </ProtectedRoute>
+        )
       },
       {
         path: 'users',
@@ -70,7 +82,11 @@ const router = createBrowserRouter([
       },
       {
         path: 'posts', 
-        element: <PostsPage />
+        element: (
+          <ProtectedRoute>
+            <PostsPage />
+          </ProtectedRoute>
+        )
       },
       {
         path: '*',
