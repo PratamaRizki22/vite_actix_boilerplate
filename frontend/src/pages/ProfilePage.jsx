@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
@@ -29,6 +29,7 @@ const ProfilePage = () => {
   const [qrCode, setQrCode] = useState('');
   const [secret, setSecret] = useState('');
   const [copied, setCopied] = useState(false);
+  const qrCodeRef = useRef(null);
 
   // Update form when user data loads
   useEffect(() => {
@@ -627,17 +628,51 @@ const ProfilePage = () => {
                             <p className="text-black font-bold mb-4">
                               Step 1: Scan QR Code with Authenticator App
                             </p>
-                            <div className="p-4 border border-black text-center bg-white">
+                            <div className="p-6 border border-black text-center bg-white">
                               {qrCode ? (
-                                <QRCodeSVG
-                                  value={qrCode}
-                                  size={200}
-                                  level="H"
-                                  includeMargin={true}
-                                  className="mx-auto"
-                                />
+                                <>
+                                  <div ref={qrCodeRef} className="bg-white p-4 border-2 border-black inline-block mb-4">
+                                    <QRCodeSVG
+                                      value={qrCode}
+                                      size={256}
+                                      level="H"
+                                      includeMargin={true}
+                                      renderAs="svg"
+                                    />
+                                  </div>
+                                  <p className="text-sm text-black mb-3">
+                                    Scan this QR code with any authenticator app (Google Authenticator, Microsoft Authenticator, Authy, etc.)
+                                  </p>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (qrCodeRef.current) {
+                                        const svg = qrCodeRef.current.querySelector('svg');
+                                        if (svg) {
+                                          const canvas = document.createElement('canvas');
+                                          const ctx = canvas.getContext('2d');
+                                          const img = new Image();
+                                          img.onload = () => {
+                                            canvas.width = img.width;
+                                            canvas.height = img.height;
+                                            ctx.drawImage(img, 0, 0);
+                                            const link = document.createElement('a');
+                                            link.href = canvas.toDataURL('image/png');
+                                            link.download = 'ush-2fa-qrcode.png';
+                                            link.click();
+                                          };
+                                          const svgData = new XMLSerializer().serializeToString(svg);
+                                          img.src = 'data:image/svg+xml;base64,' + btoa(svgData);
+                                        }
+                                      }
+                                    }}
+                                    className="px-4 py-2 border border-black bg-white text-black font-bold hover:bg-black hover:text-white transition text-sm"
+                                  >
+                                    Download QR Code
+                                  </button>
+                                </>
                               ) : (
-                                <div className="w-48 h-48 mx-auto flex items-center justify-center bg-gray-100">
+                                <div className="w-64 h-64 mx-auto flex items-center justify-center bg-gray-100">
                                   <p className="text-black">Loading QR Code...</p>
                                 </div>
                               )}
@@ -667,18 +702,6 @@ const ProfilePage = () => {
                             <p className="text-sm text-black">
                               Save this secret in a safe place. You'll need it if you lose access to your authenticator app.
                             </p>
-                          </div>
-
-                          {/* Supported Apps */}
-                          <div className="p-4 border border-black bg-white">
-                            <p className="text-black font-bold mb-2">Supported Apps:</p>
-                            <ul className="list-disc list-inside text-black text-sm space-y-1">
-                              <li>Google Authenticator</li>
-                              <li>Microsoft Authenticator</li>
-                              <li>Authy</li>
-                              <li>FreeOTP</li>
-                              <li>1Password</li>
-                            </ul>
                           </div>
 
                           {/* Action Buttons */}
