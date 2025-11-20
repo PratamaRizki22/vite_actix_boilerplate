@@ -11,15 +11,44 @@ export const AuthProvider = ({ children }) => {
 
   // Initialize auth state on mount
   useEffect(() => {
-    const storedToken = localStorage.getItem('token');
-    if (storedToken) {
-      setToken(storedToken);
-      const userData = authService.getCurrentUser();
-      if (userData) {
-        setUser(userData);
+    const initializeAuth = async () => {
+      try {
+        const storedToken = localStorage.getItem('token');
+        if (storedToken) {
+          setToken(storedToken);
+          // Validate token with backend
+          try {
+            const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/auth/me`, {
+              headers: {
+                Authorization: `Bearer ${storedToken}`
+              }
+            });
+            
+            if (response.ok) {
+              const userData = await response.json();
+              setUser(userData.user || userData);
+            } else {
+              // Token invalid or expired, clear it
+              localStorage.removeItem('token');
+              setUser(null);
+              setToken(null);
+            }
+          } catch (err) {
+            console.error('Failed to validate token:', err);
+            // Clear invalid token
+            localStorage.removeItem('token');
+            setUser(null);
+            setToken(null);
+          }
+        } else {
+          setUser(null);
+        }
+      } finally {
+        setLoading(false);
       }
-    }
-    setLoading(false);
+    };
+
+    initializeAuth();
   }, []);
 
   // Watch for token changes from localStorage and custom auth update events
