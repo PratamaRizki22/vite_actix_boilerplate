@@ -72,10 +72,16 @@ const LoginPage = () => {
         return;
       }
       
-      // Small delay to ensure state updates propagate
-      setTimeout(() => {
-        navigate('/');
-      }, 100);
+      // Check if user has 2FA enabled
+      if (result.user && result.user.two_factor_enabled) {
+        // Redirect to 2FA verification page
+        navigate('/2fa-verify', { state: { username: result.user.username } });
+      } else {
+        // Small delay to ensure state updates propagate
+        setTimeout(() => {
+          navigate('/');
+        }, 100);
+      }
     } catch (err) {
       console.error('Google login error:', err);
       setError(err.response?.data?.error || err.message || 'Google login failed');
@@ -110,8 +116,15 @@ const LoginPage = () => {
       }
 
       const response = await login(trimmedUsername, trimmedPassword);
-      // Login sukses → navigate ke home
-      navigate('/');
+      
+      // Check if user has 2FA enabled
+      if (response.user && response.user.two_factor_enabled) {
+        // Redirect to 2FA verification page
+        navigate('/2fa-verify', { state: { username: trimmedUsername } });
+      } else {
+        // Login sukses dan tidak ada 2FA → navigate ke home
+        navigate('/');
+      }
     } catch (err) {
       // Check if rate limited
       if (err.response?.status === 429) {

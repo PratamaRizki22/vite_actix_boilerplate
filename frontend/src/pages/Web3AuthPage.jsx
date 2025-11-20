@@ -148,8 +148,16 @@ const Web3AuthPage = () => {
     setError('');
 
     try {
-      await verifyWeb3Signature(address, challenge, sig);
-      navigate('/');
+      const response = await verifyWeb3Signature(address, challenge, sig);
+      
+      // Check if user has 2FA enabled
+      if (response.user && response.user.two_factor_enabled) {
+        // Redirect to 2FA verification page
+        navigate('/2fa-verify', { state: { username: response.user.username } });
+      } else {
+        // No 2FA → navigate to home
+        navigate('/');
+      }
     } catch (err) {
       setError(err.response?.data?.error || 'Signature verification failed');
     } finally {
