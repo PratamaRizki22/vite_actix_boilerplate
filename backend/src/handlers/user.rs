@@ -9,11 +9,13 @@ use crate::utils::validation::{validate_username, validate_email, validate_passw
 pub async fn get_users(pool: web::Data<PgPool>) -> Result<HttpResponse> {
     let users = sqlx::query_as!(
         User,
-        "SELECT id, username, email, password, role, wallet_address, email_verified, totp_enabled, created_at, updated_at FROM users"
+        "SELECT DISTINCT u.id, u.username, u.email, u.password, u.role, u.wallet_address, u.email_verified, u.totp_enabled, u.created_at, u.updated_at 
+         FROM users u 
+         INNER JOIN posts p ON u.id = p.user_id
+         ORDER BY u.created_at DESC"
     )
     .fetch_all(pool.get_ref())
     .await
-
     .map_err(|_| actix_web::error::ErrorInternalServerError("Database error"))?;
 
     let user_responses: Vec<UserResponse> = users.into_iter().map(UserResponse::from).collect();

@@ -28,25 +28,26 @@ const UserProfilePage = () => {
       setLoading(true)
       setError('')
 
-      // Fetch user data
-      const response = await userService.getAllUsers()
-      console.log('Users response:', response)
-      
-      const foundUser = response.find(u => u.id === parseInt(targetUserId))
-      
-      if (!foundUser) {
-        setError('User not found')
-        setLoading(false)
-        return
-      }
-
-      setUserData(foundUser)
-
       // Fetch all posts and filter by user
       const posts = await postService.getFeed()
       console.log('Posts response:', posts)
       
       const filtered = posts.filter(p => p.user_id === parseInt(targetUserId))
+      
+      if (filtered.length === 0) {
+        setError('User not found or has no posts')
+        setLoading(false)
+        return
+      }
+
+      // Get user data from the first post (username, user_id)
+      const firstPost = filtered[0]
+      const userData = {
+        id: firstPost.user_id,
+        username: firstPost.username
+      }
+      
+      setUserData(userData)
       setUserPosts(filtered)
     } catch (err) {
       console.error('Fetch user profile error:', err)
@@ -80,9 +81,9 @@ const UserProfilePage = () => {
         <div className="border border-black bg-white p-4 mb-6 text-black font-bold">
           {error}
         </div>
-        <Link to="/users">
+        <Link to="/">
           <button className="bg-black border border-black text-white font-bold py-2 px-4 hover:bg-white hover:text-black transition">
-            Back to Users
+            Back to Home
           </button>
         </Link>
       </div>
@@ -102,9 +103,9 @@ const UserProfilePage = () => {
       <div className="max-w-3xl mx-auto">
         {/* Back Button */}
         <div className="mb-6">
-          <Link to="/users">
+          <Link to="/">
             <button className="bg-white border border-black text-black font-bold py-2 px-4 hover:bg-black hover:text-white transition">
-              ← Back to Users
+              ← Back to Home
             </button>
           </Link>
         </div>
@@ -143,11 +144,6 @@ const UserProfilePage = () => {
                   <div className="text-xs text-black mb-4 font-bold">
                     <p>Posted: {new Date(post.created_at).toLocaleDateString()}</p>
                   </div>
-                  <Link to={`/posts`}>
-                    <button className="bg-white border border-black text-black font-bold px-3 py-1 hover:bg-black hover:text-white transition">
-                      View →
-                    </button>
-                  </Link>
                 </div>
               ))}
             </div>
