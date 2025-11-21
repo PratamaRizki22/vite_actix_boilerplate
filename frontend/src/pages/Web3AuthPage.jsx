@@ -155,8 +155,8 @@ const Web3AuthPage = () => {
         // Redirect to 2FA verification page
         navigate('/2fa-verify', { state: { username: response.user.username } });
       } else {
-        // No 2FA → navigate to home
-        navigate('/');
+        // No 2FA → navigate to dashboard
+        navigate('/dashboard');
       }
     } catch (err) {
       setError(err.response?.data?.error || 'Signature verification failed');

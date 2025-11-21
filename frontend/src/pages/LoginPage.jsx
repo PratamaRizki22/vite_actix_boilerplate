@@ -6,7 +6,7 @@ import axios from 'axios';
 import googleAuthService from '../services/googleAuthService';
 
 const LoginPage = () => {
-  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
@@ -65,23 +65,16 @@ const LoginPage = () => {
       
       const result = await googleAuthService.verifyGoogleToken(token);
       
-      // Ensure token is actually stored before navigating
-      const storedToken = localStorage.getItem('token');
-      if (!storedToken) {
-        setError('Failed to store authentication token');
-        return;
-      }
-      
-      // Check if user has 2FA enabled
-      if (result.user && result.user.two_factor_enabled) {
-        // Redirect to 2FA verification page
-        navigate('/2fa-verify', { state: { username: result.user.username } });
-      } else {
-        // Small delay to ensure state updates propagate
-        setTimeout(() => {
-          navigate('/');
-        }, 100);
-      }
+      // Redirect to auth method selection page
+      navigate('/auth-method-select', { 
+        state: { 
+          temp_token: result.temp_token,
+          mfa_methods: result.mfa_methods,
+          user: result.user,
+          can_skip_mfa: result.can_skip_mfa,
+          isLogin: true
+        } 
+      });
     } catch (err) {
       console.error('Google login error:', err);
       setError(err.response?.data?.error || err.message || 'Google login failed');
@@ -105,26 +98,47 @@ const LoginPage = () => {
     setLoading(true);
 
     try {
-      // Trim whitespace dari username dan password
-      const trimmedUsername = username.trim();
+      // Trim whitespace dari email dan password
+      const trimmedEmail = email.trim();
       const trimmedPassword = password.trim();
 
-      if (!trimmedUsername || !trimmedPassword) {
-        setError('Username and password are required');
+      if (!trimmedEmail || !trimmedPassword) {
+        setError('Email and password are required');
         setLoading(false);
         return;
       }
 
-      const response = await login(trimmedUsername, trimmedPassword);
+      const response = await login(trimmedEmail, trimmedPassword);
       
-      // Check if user has 2FA enabled
-      if (response.user && response.user.two_factor_enabled) {
-        // Redirect to 2FA verification page
-        navigate('/2fa-verify', { state: { username: trimmedUsername } });
-      } else {
-        // Login sukses dan tidak ada 2FA → navigate ke home
-        navigate('/');
+      // Check if user has 2FA disabled - direct login (has token)
+      if (response.token) {
+        console.log('User has no 2FA - direct login successful');
+        
+        // Store token and user data
+        localStorage.setItem('token', response.token);
+        if (response.refresh_token) {
+          localStorage.setItem('refresh_token', response.refresh_token);
+        }
+        if (response.user) {
+          localStorage.setItem('user', JSON.stringify(response.user));
+        }
+        
+        // Dispatch auth event and navigate to dashboard
+        window.dispatchEvent(new Event('auth-update'));
+        navigate('/dashboard');
+        return;
       }
+      
+      // User has 2FA enabled - redirect to auth method selection page
+      navigate('/auth-method-select', { 
+        state: { 
+          temp_token: response.temp_token,
+          mfa_methods: response.mfa_methods,
+          user: response.user,
+          can_skip_mfa: response.can_skip_mfa,
+          isLogin: true
+        } 
+      });
     } catch (err) {
       // Check if rate limited
       if (err.response?.status === 429) {
@@ -146,7 +160,7 @@ const LoginPage = () => {
         try {
           await axios.post(
             `${import.meta.env.VITE_API_BASE_URL}/api/auth/email/send-verification`,
-            { email: username }
+            { email: email }
           );
           console.log('Verification email sent');
         } catch (emailErr) {
@@ -158,8 +172,9 @@ const LoginPage = () => {
         
         // Redirect ke OTP verification page dengan email & credentials untuk auto-login setelah verify
         navigate('/verify-otp', { state: { 
-          email: username,
-          credentials: { username, password }
+          email: email,
+          credentials: { email, password },
+          codeSent: true // Flag to indicate code was already sent
         } });
       } else {
         // Other errors
@@ -188,14 +203,14 @@ const LoginPage = () => {
 
         <form onSubmit={handleSubmit} className="space-y-6">
           <div>
-            <label className="block text-black font-bold mb-2">Username or Email</label>
+            <label className="block text-black font-bold mb-2">Email</label>
             <input
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
               required
               className="w-full border border-black p-2 bg-white text-black"
-              placeholder="Enter username or email"
+              placeholder="Enter your email"
             />
           </div>
 

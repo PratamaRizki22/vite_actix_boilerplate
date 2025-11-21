@@ -55,32 +55,16 @@ const RegisterPage = () => {
       const response = await register(username, email, password);
       console.log('Register success:', response);
       
-      // Send verification email
-      let emailSent = false;
-      try {
-        const emailResponse = await axios.post(
-          `${import.meta.env.VITE_API_BASE_URL}/api/auth/email/send-verification`,
-          { email }
-        );
-        console.log('Verification email sent:', emailResponse);
-        emailSent = true;
-      } catch (emailErr) {
-        console.error('Failed to send verification email:', emailErr.response?.data || emailErr.message);
-        setError('Registration successful but failed to send verification email. Please try resend.');
-        setLoading(false);
-        return;
-      }
-      
-      if (emailSent) {
-        // Pass credentials untuk auto-login setelah OTP verify
-        console.log('Navigating to verify-otp with email:', email);
-        navigate('/verify-otp', { 
-          state: { 
-            email,
-            credentials: { username, password }
-          } 
-        });
-      }
+      // Registration successful, show auth method selection page
+      console.log('Navigating to auth method select');
+      navigate('/auth-method-select', { 
+        state: { 
+          email,
+          username,
+          password,
+          isRegistration: true
+        } 
+      });
     } catch (err) {
       console.log('Register error:', err.response?.data);
       const errorMsg = err.response?.data?.error || err.response?.data || 'Registration failed';
@@ -122,9 +106,12 @@ const RegisterPage = () => {
         return;
       }
       
+      // Dispatch event to notify AuthContext
+      window.dispatchEvent(new Event('auth-update'));
+      
       // Small delay to ensure state updates propagate
       setTimeout(() => {
-        navigate('/');
+        navigate('/dashboard');
       }, 100);
     } catch (err) {
       console.error('Google registration error:', err);

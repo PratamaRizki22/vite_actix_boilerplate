@@ -4,9 +4,9 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL
 
 const googleAuthService = {
   /**
-   * Verify Google token with backend and get JWT
+   * Verify Google token with backend and get MFA options
    * @param {string} googleToken - ID token from Google OAuth
-   * @returns {Promise<{token: string, user: object}>}
+   * @returns {Promise<{temp_token: string, mfa_methods: string[], user: object}>}
    */
   verifyGoogleToken: async (googleToken) => {
     try {
@@ -14,21 +14,12 @@ const googleAuthService = {
         token: googleToken,
       })
       
-      if (response.data.access_token) {
-        // Store JWT token
-        localStorage.setItem('token', response.data.access_token)
-        localStorage.setItem('user', JSON.stringify(response.data.user || {}))
-        
-        // Dispatch custom event to notify AuthContext of the update
-        window.dispatchEvent(new Event('auth-update'));
-        
-        return {
-          token: response.data.access_token,
-          user: response.data.user,
-        }
+      // Return MFA options - MFA verification is now required
+      return {
+        temp_token: response.data.temp_token,
+        mfa_methods: response.data.mfa_methods,
+        user: response.data.user,
       }
-      
-      throw new Error('No token in response')
     } catch (error) {
       console.error('Google token verification failed:', error)
       throw error

@@ -1,15 +1,25 @@
 import api from './api';
 
 const userService = {
-  // Get all users
+  // Get all users (admin only)
   getAllUsers: async () => {
     const response = await api.get('/users');
     return response.data;
   },
 
-  // Search users by username with pagination
+  // Search users by username - public search (like Instagram)
+  searchUsersPublic: async (searchTerm) => {
+    const response = await api.get('/users/search-public', {
+      params: {
+        search: searchTerm
+      }
+    });
+    return response.data;
+  },
+
+  // Search users by username with pagination (admin only)
   searchUsers: async (searchTerm, page = 1) => {
-    const response = await api.get('/users/search', {
+    const response = await api.get('/users', {
       params: {
         search: searchTerm,
         page: page

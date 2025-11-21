@@ -13,6 +13,9 @@ pub struct User {
     pub wallet_address: Option<String>,
     pub email_verified: bool,
     pub totp_enabled: Option<bool>,
+    #[serde(skip_serializing)]
+    #[sqlx(default)]
+    pub recovery_codes: Option<Vec<String>>,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
 }

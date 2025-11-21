@@ -10,9 +10,19 @@ pub struct LoginRequest {
 
 #[derive(Debug, Serialize)]
 pub struct LoginResponse {
-    pub token: String,
-    pub refresh_token: String,
+    pub token: Option<String>,
+    pub refresh_token: Option<String>,
     pub user: UserResponse,
+    pub requires_mfa: bool,
+    pub mfa_methods: Option<Vec<String>>, // ["totp", "email"]
+    pub temp_token: Option<String>, // Token untuk sementara untuk MFA verification
+}
+
+#[derive(Debug, Deserialize)]
+pub struct MFAVerifyRequest {
+    pub temp_token: String,
+    pub method: String, // "totp" atau "email"
+    pub code: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -26,6 +36,15 @@ pub struct RegisterRequest {
 pub struct TOTPSetupResponse {
     pub secret: String,
     pub qr_code_url: String,
+    pub recovery_codes: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct TOTPSetupRequiredResponse {
+    pub setup_required: bool,
+    pub secret: String,
+    pub qr_code_url: String,
+    pub message: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -88,4 +107,10 @@ pub struct PasswordResetConfirm {
 pub struct PasswordResetResponse {
     pub success: bool,
     pub message: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ChangePasswordRequest {
+    pub current_password: String,
+    pub new_password: String,
 }

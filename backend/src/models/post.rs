@@ -18,6 +18,8 @@ pub struct PostResponse {
     pub username: String,
     pub title: String,
     pub content: String,
+    pub likes_count: i32,
+    pub comments_count: i32,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
 }

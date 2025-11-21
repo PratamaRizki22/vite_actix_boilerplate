@@ -6,6 +6,7 @@ use chrono::{DateTime, Utc, Duration};
 
 lazy_static! {
     static ref VERIFICATION_CODES: Mutex<HashMap<String, (String, DateTime<Utc>)>> = Mutex::new(HashMap::new());
+    static ref MFA_VERIFICATION_CODES: Mutex<HashMap<i32, (String, DateTime<Utc>)>> = Mutex::new(HashMap::new()); // user_id -> (code, expires_at)
     static ref PASSWORD_RESET_TOKENS: Mutex<HashMap<String, (String, DateTime<Utc>)>> = Mutex::new(HashMap::new()); // token -> (email, expires_at)
 }
 
@@ -61,6 +62,22 @@ impl EmailService {
         false
     }
 
+    pub fn get_verification_code(email: &str) -> Option<String> {
+        let codes = VERIFICATION_CODES.lock().unwrap();
+        if let Some((stored_code, expires_at)) = codes.get(email) {
+            if Utc::now() > *expires_at {
+                return None;
+            }
+            return Some(stored_code.clone());
+        }
+        None
+    }
+
+    pub fn get_all_codes_with_expiry() -> std::collections::HashMap<String, (String, DateTime<Utc>)> {
+        let codes = VERIFICATION_CODES.lock().unwrap();
+        codes.clone()
+    }
+
     pub fn get_debug_codes() -> std::collections::HashMap<String, String> {
         let codes = VERIFICATION_CODES.lock().unwrap();
         let mut result = std::collections::HashMap::new();
@@ -74,7 +91,83 @@ impl EmailService {
         result
     }
 
-    // Password Reset Methods
+    // Cleanup expired verification codes and return count of cleaned items
+    pub fn cleanup_expired_codes() -> usize {
+        let mut codes = VERIFICATION_CODES.lock().unwrap();
+        let mut mfa_codes = MFA_VERIFICATION_CODES.lock().unwrap();
+        let mut password_tokens = PASSWORD_RESET_TOKENS.lock().unwrap();
+        
+        let now = Utc::now();
+        let mut cleaned = 0;
+
+        // Clean verification codes
+        codes.retain(|_, (_, expires_at)| {
+            if *expires_at > now {
+                true
+            } else {
+                cleaned += 1;
+                false
+            }
+        });
+
+        // Clean MFA codes
+        mfa_codes.retain(|_, (_, expires_at)| {
+            if *expires_at > now {
+                true
+            } else {
+                cleaned += 1;
+                false
+            }
+        });
+
+        // Clean password reset tokens
+        password_tokens.retain(|_, (_, expires_at)| {
+            if *expires_at > now {
+                true
+            } else {
+                cleaned += 1;
+                false
+            }
+        });
+
+        cleaned
+    }
+
+    // MFA Verification Code Methods
+    pub fn store_mfa_verification_code(user_id: i32, code: &str) {
+        let mut codes = MFA_VERIFICATION_CODES.lock().unwrap();
+        // Remove any old code for this user first
+        codes.remove(&user_id);
+        let expires_at = Utc::now() + Duration::minutes(5);
+        codes.insert(user_id, (code.to_string(), expires_at));
+        println!("Stored MFA verification code {} for user {} (expires in 5 minutes)", code, user_id);
+    }
+
+    pub fn get_mfa_verification_code(user_id: i32) -> Option<String> {
+        let codes = MFA_VERIFICATION_CODES.lock().unwrap();
+        if let Some((stored_code, expires_at)) = codes.get(&user_id) {
+            if Utc::now() > *expires_at {
+                return None;
+            }
+            return Some(stored_code.clone());
+        }
+        None
+    }
+
+    pub fn get_mfa_code_expiry(user_id: i32) -> Option<DateTime<Utc>> {
+        let codes = MFA_VERIFICATION_CODES.lock().unwrap();
+        codes.get(&user_id).map(|(_, expires_at)| *expires_at)
+    }
+
+    pub fn clear_mfa_verification_code(user_id: i32) {
+        let mut codes = MFA_VERIFICATION_CODES.lock().unwrap();
+        codes.remove(&user_id);
+    }
+
+    pub fn get_all_mfa_codes_with_expiry() -> std::collections::HashMap<i32, (String, DateTime<Utc>)> {
+        let codes = MFA_VERIFICATION_CODES.lock().unwrap();
+        codes.clone()
+    }
     pub fn generate_password_reset_token() -> String {
         use rand::Rng;
         let mut rng = rand::thread_rng();

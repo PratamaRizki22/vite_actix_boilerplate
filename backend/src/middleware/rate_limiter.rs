@@ -85,6 +85,50 @@ impl RateLimiter {
         println!("[RateLimit] Reset limit for: {}", key);
     }
 
+    /// Check if client has exceeded rate limit with custom key
+    /// Returns: (is_allowed, remaining_attempts, reset_seconds)
+    pub fn check_limit_with_key(
+        key: &str,
+        max_attempts: u32,
+        window_minutes: u32,
+    ) -> (bool, u32, u32) {
+        let mut store = RATE_LIMIT_STORE.lock().unwrap();
+        let now = Utc::now();
+
+        // Get or create entry
+        let entry = store.entry(key.to_string()).or_insert_with(|| RateLimitEntry {
+            count: 0,
+            reset_time: now + Duration::minutes(window_minutes as i64),
+        });
+
+        // Check if window has expired
+        if now > entry.reset_time {
+            // Reset the window
+            entry.count = 0;
+            entry.reset_time = now + Duration::minutes(window_minutes as i64);
+        }
+
+        // Increment count
+        entry.count += 1;
+
+        // Calculate remaining attempts and reset seconds
+        let remaining = if entry.count > max_attempts {
+            0
+        } else {
+            max_attempts - entry.count
+        };
+
+        let reset_seconds = (entry.reset_time - now).num_seconds() as u32;
+        let is_allowed = entry.count <= max_attempts;
+
+        println!(
+            "[RateLimit] {} - Count: {}/{}, Remaining: {}, Reset in: {}s",
+            key, entry.count, max_attempts, remaining, reset_seconds
+        );
+
+        (is_allowed, remaining, reset_seconds)
+    }
+
     /// Get current rate limit stats for debugging
     pub fn get_stats() -> HashMap<String, (u32, String)> {
         let store = RATE_LIMIT_STORE.lock().unwrap();

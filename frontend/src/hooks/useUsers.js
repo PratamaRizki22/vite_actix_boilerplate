@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { userService } from '../services/userService';
+import userService from '../services/userService';
 
 export const useUsers = () => {
   const [users, setUsers] = useState([]);
@@ -10,7 +10,7 @@ export const useUsers = () => {
     setLoading(true);
     setError(null);
     try {
-      const data = await userService.getAll();
+      const data = await userService.getAllUsers();
       setUsers(data);
     } catch (err) {
       setError(err.message);
@@ -21,7 +21,7 @@ export const useUsers = () => {
 
   const createUser = async (userData) => {
     try {
-      const newUser = await userService.create(userData);
+      const newUser = await userService.createUser(userData);
       setUsers(prev => [...prev, newUser]);
       return newUser;
     } catch (err) {
@@ -32,7 +32,7 @@ export const useUsers = () => {
 
   const deleteUser = async (id) => {
     try {
-      await userService.delete(id);
+      await userService.deleteUser(id);
       setUsers(prev => prev.filter(user => user.id !== id));
     } catch (err) {
       setError(err.message);

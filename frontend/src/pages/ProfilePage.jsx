@@ -28,8 +28,43 @@ const ProfilePage = () => {
   const [twoFALoading, setTwoFALoading] = useState(false);
   const [qrCode, setQrCode] = useState('');
   const [secret, setSecret] = useState('');
+  const [recoveryCodes, setRecoveryCodes] = useState([]);
   const [copied, setCopied] = useState(false);
+  const [copiedCodes, setCopiedCodes] = useState(false);
   const qrCodeRef = useRef(null);
+
+  // Refresh user data from localStorage/API
+  const refreshUserData = async () => {
+    try {
+      // First check localStorage
+      const storedUser = localStorage.getItem('user');
+      if (storedUser) {
+        const parsedUser = JSON.parse(storedUser);
+        setUsername(parsedUser.username || '');
+        setEmail(parsedUser.email || '');
+        setIs2FAEnabled(parsedUser.two_factor_enabled || false);
+      }
+
+      // Then fetch fresh data from API
+      const token = localStorage.getItem('token');
+      if (token) {
+        const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/auth/me`, {
+          headers: {
+            Authorization: `Bearer ${token}`
+          }
+        });
+        if (response.ok) {
+          const userData = await response.json();
+          localStorage.setItem('user', JSON.stringify(userData));
+          setUsername(userData.username || '');
+          setEmail(userData.email || '');
+          setIs2FAEnabled(userData.two_factor_enabled || false);
+        }
+      }
+    } catch (err) {
+      console.error('Error refreshing user data:', err);
+    }
+  };
 
   // Update form when user data loads
   useEffect(() => {
@@ -41,6 +76,19 @@ const ProfilePage = () => {
       setIs2FAEnabled(user.two_factor_enabled || false);
     }
   }, [user]);
+
+  // Refresh user data on mount and when auth updates
+  useEffect(() => {
+    refreshUserData();
+
+    const handleAuthUpdate = () => {
+      console.log('Auth update detected, refreshing user data...');
+      refreshUserData();
+    };
+
+    window.addEventListener('auth-update', handleAuthUpdate);
+    return () => window.removeEventListener('auth-update', handleAuthUpdate);
+  }, []);
 
   if (!user) {
     return (
@@ -65,11 +113,30 @@ const ProfilePage = () => {
       const data = await twoFactorService.setup2FA();
       setQrCode(data.qr_code_url);
       setSecret(data.secret);
+      setRecoveryCodes(data.recovery_codes || []);
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to setup 2FA');
     } finally {
       setTwoFALoading(false);
     }
+  };
+
+  const copyRecoveryCodesToClipboard = () => {
+    const codesText = recoveryCodes.join('\n');
+    navigator.clipboard.writeText(codesText);
+    setCopiedCodes(true);
+    setTimeout(() => setCopiedCodes(false), 2000);
+  };
+
+  const downloadRecoveryCodes = () => {
+    const codesText = `USH Account Recovery Codes\n\nUsername: ${user.username}\nGenerated: ${new Date().toLocaleString()}\n\n${recoveryCodes.join('\n')}\n\nIMPORTANT:\n- Save these codes in a safe place\n- Each code can only be used once\n- Use these if you lose access to your authenticator app`;
+    const blob = new Blob([codesText], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `ush-recovery-codes-${user.username}.txt`;
+    link.click();
+    URL.revokeObjectURL(url);
   };
 
   const handle2FASetup = async () => {
@@ -243,7 +310,7 @@ const ProfilePage = () => {
         return;
       }
 
-      // If updating password, require current password
+      // If updating password, use dedicated password change endpoint
       if (newPassword) {
         if (!currentPassword) {
           setError('Current password is required to change password');
@@ -265,24 +332,49 @@ const ProfilePage = () => {
           setLoading(false);
           return;
         }
-        updateData.password = newPassword;
+
+        // Call dedicated password change endpoint
+        try {
+          await axios.post(
+            `${import.meta.env.VITE_API_BASE_URL}/api/auth/password/change`,
+            {
+              current_password: currentPassword,
+              new_password: newPassword
+            },
+            {
+              headers: {
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'application/json',
+              },
+            }
+          );
+        } catch (passwordErr) {
+          console.error('Password change error:', passwordErr);
+          const errorMsg = passwordErr.response?.data?.error || passwordErr.message || 'Failed to change password';
+          setError(errorMsg);
+          setLoading(false);
+          return;
+        }
       }
 
-      const response = await axios.put(
-        `${import.meta.env.VITE_API_BASE_URL}/api/users/${user.id}`,
-        updateData,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
+      // If there are other updates, do them
+      if (Object.keys(updateData).length > 0) {
+        const response = await axios.put(
+          `${import.meta.env.VITE_API_BASE_URL}/api/users/${user.id}`,
+          updateData,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+          }
+        );
+        
+        // Update localStorage with new user data
+        localStorage.setItem('user', JSON.stringify(response.data));
+      }
 
       setSuccess('Profile updated successfully!');
-      
-      // Update localStorage with new user data
-      localStorage.setItem('user', JSON.stringify(response.data));
       
       // Clear password fields
       setCurrentPassword('');
@@ -703,6 +795,42 @@ const ProfilePage = () => {
                               Save this secret in a safe place. You'll need it if you lose access to your authenticator app.
                             </p>
                           </div>
+
+                          {/* Recovery Codes Section */}
+                          {recoveryCodes.length > 0 && (
+                            <div className="p-4 border-2 border-orange-600 bg-orange-50">
+                              <p className="text-black font-bold mb-3 flex items-center gap-2">
+                                <span className="text-2xl">⚠️</span>
+                                Step 3: Save Your Recovery Codes
+                              </p>
+                              <p className="text-sm text-black mb-3">
+                                Save these codes in a safe place. Each code can only be used once. Use these if you lose access to your authenticator app.
+                              </p>
+                              <div className="grid grid-cols-2 gap-2 mb-3 p-3 bg-white border border-black">
+                                {recoveryCodes.map((code, index) => (
+                                  <div key={index} className="font-mono text-sm text-black">
+                                    {index + 1}. {code}
+                                  </div>
+                                ))}
+                              </div>
+                              <div className="flex gap-2">
+                                <button
+                                  type="button"
+                                  onClick={copyRecoveryCodesToClipboard}
+                                  className="flex-1 px-4 py-2 border border-black bg-white text-black font-bold hover:bg-black hover:text-white transition text-sm"
+                                >
+                                  {copiedCodes ? '✓ Copied' : 'Copy All Codes'}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={downloadRecoveryCodes}
+                                  className="flex-1 px-4 py-2 border border-black bg-white text-black font-bold hover:bg-black hover:text-white transition text-sm"
+                                >
+                                  Download as File
+                                </button>
+                              </div>
+                            </div>
+                          )}
 
                           {/* Action Buttons */}
                           <div className="space-y-2">

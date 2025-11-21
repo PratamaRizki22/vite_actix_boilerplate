@@ -9,7 +9,7 @@ use crate::utils::validation::{validate_username, validate_email, validate_passw
 pub async fn get_users(pool: web::Data<PgPool>) -> Result<HttpResponse> {
     let users = sqlx::query_as!(
         User,
-        "SELECT DISTINCT u.id, u.username, u.email, u.password, u.role, u.wallet_address, u.email_verified, u.totp_enabled, u.created_at, u.updated_at 
+        "SELECT DISTINCT u.id, u.username, u.email, u.password, u.role, u.wallet_address, u.email_verified, u.totp_enabled, u.recovery_codes, u.created_at, u.updated_at 
          FROM users u 
          INNER JOIN posts p ON u.id = p.user_id
          ORDER BY u.created_at DESC"
@@ -28,7 +28,7 @@ pub async fn get_user(path: web::Path<i32>, pool: web::Data<PgPool>) -> Result<H
 
     let user = sqlx::query_as!(
         User,
-        "SELECT id, username, email, password, role, wallet_address, email_verified, totp_enabled, created_at, updated_at FROM users WHERE id = $1",
+        "SELECT id, username, email, password, role, wallet_address, email_verified, totp_enabled, recovery_codes, created_at, updated_at FROM users WHERE id = $1",
         user_id
     )
     .fetch_optional(pool.get_ref())
@@ -78,7 +78,7 @@ pub async fn create_user(
         User,
         "INSERT INTO users (username, email, password, role, email_verified)
          VALUES ($1, $2, $3, $4, false)
-         RETURNING id, username, email, password, role, wallet_address, email_verified, totp_enabled, created_at, updated_at",
+         RETURNING id, username, email, password, role, wallet_address, email_verified, totp_enabled, recovery_codes, created_at, updated_at",
         user_data.username,
         user_data.email,
         hashed_password,
@@ -186,7 +186,7 @@ pub async fn update_user(
     // Get updated user
     let user = sqlx::query_as!(
         User,
-        "SELECT id, username, email, password, role, wallet_address, email_verified, totp_enabled, created_at, updated_at
+        "SELECT id, username, email, password, role, wallet_address, email_verified, totp_enabled, recovery_codes, created_at, updated_at
          FROM users WHERE id = $1",
         user_id
     )
@@ -266,7 +266,7 @@ pub async fn search_users(
     // Get paginated results with ranking
     let users = sqlx::query_as!(
         User,
-        "SELECT id, username, email, password, role, wallet_address, email_verified, totp_enabled, created_at, updated_at 
+        "SELECT id, username, email, password, role, wallet_address, email_verified, totp_enabled, recovery_codes, created_at, updated_at 
          FROM users 
          WHERE to_tsvector('english', username) @@ to_tsquery('english', $1)
          ORDER BY ts_rank(to_tsvector('english', username), to_tsquery('english', $1)) DESC, username ASC
@@ -291,6 +291,49 @@ pub async fn search_users(
             "total": count_result,
             "total_pages": total_pages
         }
+    })))
+}
+
+pub async fn search_users_public(
+    pool: web::Data<PgPool>,
+    query: web::Query<std::collections::HashMap<String, String>>,
+) -> Result<HttpResponse> {
+    let search_term = query.get("search").cloned().unwrap_or_default();
+    
+    if search_term.is_empty() {
+        return Ok(HttpResponse::BadRequest().json(serde_json::json!({
+            "error": "Search term is required"
+        })));
+    }
+
+    // Use full-text search with to_tsquery for better performance
+    let search_query = format!("{}:*", search_term.trim());
+    
+    // Get results with limit to 10 for quick search (like Instagram)
+    let limit: i64 = 10;
+    
+    let users = sqlx::query!(
+        "SELECT id, username FROM users 
+         WHERE to_tsvector('english', username) @@ to_tsquery('english', $1)
+         ORDER BY ts_rank(to_tsvector('english', username), to_tsquery('english', $1)) DESC, username ASC
+         LIMIT $2",
+        search_query,
+        limit
+    )
+    .fetch_all(pool.get_ref())
+    .await
+    .map_err(|_| actix_web::error::ErrorInternalServerError("Database error"))?;
+
+    let results: Vec<serde_json::Value> = users.into_iter().map(|user| {
+        serde_json::json!({
+            "id": user.id,
+            "username": user.username
+        })
+    }).collect();
+
+    Ok(HttpResponse::Ok().json(serde_json::json!({
+        "results": results,
+        "count": results.len()
     })))
 }
 

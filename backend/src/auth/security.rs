@@ -19,10 +19,24 @@ pub async fn setup_2fa(pool: web::Data<PgPool>, req: HttpRequest) -> Result<Http
         &secret_bytes_vec,
     );
 
-    // Save secret to database
+    // Generate 8 recovery codes (8 characters each)
+    let recovery_codes: Vec<String> = (0..8)
+        .map(|_| {
+            let code: String = (0..8)
+                .map(|_| {
+                    let chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+                    chars.chars().nth(rand::thread_rng().gen_range(0..chars.len())).unwrap()
+                })
+                .collect();
+            format!("{}-{}", &code[0..4], &code[4..8])
+        })
+        .collect();
+
+    // Save secret and recovery codes to database
     sqlx::query!(
-        "UPDATE users SET totp_secret = $1 WHERE id = $2",
+        "UPDATE users SET totp_secret = $1, recovery_codes = $2 WHERE id = $3",
         secret_base32,
+        &recovery_codes,
         current_user.sub
     )
     .execute(pool.get_ref())
@@ -35,10 +49,11 @@ pub async fn setup_2fa(pool: web::Data<PgPool>, req: HttpRequest) -> Result<Http
         current_user.username, secret_base32
     );
 
-    let response = TOTPSetupResponse {
-        secret: secret_base32,
-        qr_code_url,
-    };
+    let response = serde_json::json!({
+        "secret": secret_base32,
+        "qr_code_url": qr_code_url,
+        "recovery_codes": recovery_codes
+    });
 
     Ok(HttpResponse::Ok().json(response))
 }
@@ -100,15 +115,21 @@ pub async fn verify_2fa(
     println!("✓ Secret decoded, length: {} bytes", secret_bytes.len());
 
     // Create TOTP instance with proper parameters (RFC 6238 standard)
-    let totp = totp_rs::TOTP::new_unchecked(
+    let totp = match totp_rs::TOTP::new(
         totp_rs::Algorithm::SHA1,
         6,              // 6-digit code
-        1,              // 1 digit (internal use)
+        1,              // 1 step skew/tolerance (±30 seconds)
         30,             // 30 second period
         secret_bytes.clone(),
         Some("USH".to_string()),
         current_user.username.clone(),
-    );
+    ) {
+        Ok(t) => t,
+        Err(e) => {
+            println!("❌ Failed to create TOTP instance: {:?}", e);
+            return Err(actix_web::error::ErrorInternalServerError("Failed to create TOTP instance"));
+        }
+    };
 
     // Check if the provided code is valid with time window tolerance
     // totp_rs has built-in ±1 step tolerance by default (±30 seconds)
@@ -191,7 +212,7 @@ pub async fn debug_2fa(
 
     if let Some(secret) = totp_secret {
         if let Some(secret_bytes) = base32::decode(base32::Alphabet::RFC4648 { padding: false }, &secret) {
-            let totp = totp_rs::TOTP::new_unchecked(
+            if let Ok(totp) = totp_rs::TOTP::new(
                 totp_rs::Algorithm::SHA1,
                 6,
                 1,
@@ -199,11 +220,11 @@ pub async fn debug_2fa(
                 secret_bytes,
                 Some("USH".to_string()),
                 current_user.username.clone(),
-            );
-
-            if let Ok(current_code) = totp.generate_current() {
-                debug_info["current_valid_code"] = serde_json::json!(current_code);
-                debug_info["code_valid_for_seconds"] = serde_json::json!("~30 seconds");
+            ) {
+                if let Ok(current_code) = totp.generate_current() {
+                    debug_info["current_valid_code"] = serde_json::json!(current_code);
+                    debug_info["code_valid_for_seconds"] = serde_json::json!("~30 seconds");
+                }
             }
         }
     }

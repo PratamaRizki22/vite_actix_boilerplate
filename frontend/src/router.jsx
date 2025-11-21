@@ -1,4 +1,4 @@
-import { createBrowserRouter } from 'react-router-dom';
+import { createBrowserRouter, Navigate } from 'react-router-dom';
 import App from './App';
 import HomePage from './pages/HomePage';
 import UsersPage from './pages/UsersPage';
@@ -12,8 +12,32 @@ import Web3AuthPage from './pages/Web3AuthPage';
 import TwoFactorSetupPage from './pages/TwoFactorSetupPage';
 import TwoFactorVerifyPage from './pages/TwoFactorVerifyPage';
 import OTPVerifyPage from './pages/OTPVerifyPage';
+import DashboardPage from './pages/DashboardPage';
+import AuthMethodSelectPage from './pages/AuthMethodSelectPage';
 import ProtectedRoute from './components/ProtectedRoute';
-import { AuthProvider } from './context/AuthContext';
+import { AuthProvider, useAuth } from './context/AuthContext';
+
+// Landing component that redirects based on authentication
+const LandingPage = () => {
+  const { isAuthenticated, loading } = useAuth();
+  
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-white flex items-center justify-center p-4">
+        <div className="text-center">
+          <p className="text-black font-bold">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+  
+  if (isAuthenticated) {
+    return <HomePage />;
+  }
+  
+  // Redirect to login if not authenticated
+  return <Navigate to="/login" replace />;
+};
 
 const router = createBrowserRouter([
   {
@@ -26,11 +50,7 @@ const router = createBrowserRouter([
     children: [
       {
         index: true,
-        element: (
-          <ProtectedRoute>
-            <HomePage />
-          </ProtectedRoute>
-        )
+        element: <LandingPage />
       },
       {
         path: 'login',
@@ -39,6 +59,10 @@ const router = createBrowserRouter([
       {
         path: 'register',
         element: <RegisterPage />
+      },
+      {
+        path: 'auth-method-select',
+        element: <AuthMethodSelectPage />
       },
       {
         path: 'web3-auth',
@@ -55,6 +79,14 @@ const router = createBrowserRouter([
       {
         path: 'verify-otp',
         element: <OTPVerifyPage />
+      },
+      {
+        path: 'dashboard',
+        element: (
+          <ProtectedRoute>
+            <DashboardPage />
+          </ProtectedRoute>
+        )
       },
       {
         path: 'profile',

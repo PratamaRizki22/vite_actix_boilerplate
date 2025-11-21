@@ -17,21 +17,71 @@ const authService = {
       username,
       password,
     });
+
+    // Check if MFA is required
+    if (response.data.requires_mfa) {
+      // Return MFA requirement info instead of completing login
+      return {
+        requires_mfa: true,
+        mfa_methods: response.data.mfa_methods,
+        temp_token: response.data.temp_token,
+        user: response.data.user,
+      };
+    }
+
+    // If no MFA required, complete login normally
     if (response.data.token) {
       localStorage.setItem('token', response.data.token);
-      // Store user object if available
       if (response.data.user) {
         localStorage.setItem('user', JSON.stringify(response.data.user));
       }
-      // Dispatch custom event to notify AuthContext of the update
       window.dispatchEvent(new Event('auth-update'));
     }
     return response.data;
   },
 
-  // Get Web3 Challenge
-  getWeb3Challenge: async (address) => {
-    const response = await api.post('/web3/challenge', { address });
+  // Verify MFA Code
+  verifyMFA: async (tempToken, method, code) => {
+    const response = await api.post('/auth/verify-mfa', {
+      temp_token: tempToken,
+      method,
+      code,
+    });
+
+    if (response.data.token) {
+      localStorage.setItem('token', response.data.token);
+      if (response.data.user) {
+        localStorage.setItem('user', JSON.stringify(response.data.user));
+      }
+      window.dispatchEvent(new Event('auth-update'));
+    }
+    return response.data;
+  },
+
+  // Google OAuth Login
+  googleLogin: async (token) => {
+    const response = await api.post('/auth/google/callback', {
+      token,
+    });
+
+    // Check if MFA is required
+    if (response.data.requires_mfa) {
+      return {
+        requires_mfa: true,
+        mfa_methods: response.data.mfa_methods,
+        temp_token: response.data.temp_token,
+        user: response.data.user,
+      };
+    }
+
+    // If no MFA required, complete login normally
+    if (response.data.token) {
+      localStorage.setItem('token', response.data.token);
+      if (response.data.user) {
+        localStorage.setItem('user', JSON.stringify(response.data.user));
+      }
+      window.dispatchEvent(new Event('auth-update'));
+    }
     return response.data;
   },
 

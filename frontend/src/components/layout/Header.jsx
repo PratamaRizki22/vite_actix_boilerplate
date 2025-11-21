@@ -1,6 +1,7 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import userService from '../../services/userService'
 
 const Header = () => {
   const location = useLocation()
@@ -9,6 +10,9 @@ const Header = () => {
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
   const [showUserMenu, setShowUserMenu] = useState(false)
   const [searchUsername, setSearchUsername] = useState('')
+  const [searchResults, setSearchResults] = useState([])
+  const [showSearchResults, setShowSearchResults] = useState(false)
+  const [isSearching, setIsSearching] = useState(false)
 
   const handleLogoutClick = () => {
     setShowUserMenu(false)
@@ -25,18 +29,40 @@ const Header = () => {
     setShowLogoutConfirm(false)
   }
 
-  const handleSearchUsername = (e) => {
-    e.preventDefault()
-    if (searchUsername.trim()) {
-      navigate(`/users?search=${encodeURIComponent(searchUsername)}`)
-      setSearchUsername('')
-    }
+  // Live search as user types
+  useEffect(() => {
+    const searchTimeout = setTimeout(async () => {
+      if (searchUsername.trim().length > 0) {
+        try {
+          setIsSearching(true)
+          const result = await userService.searchUsersPublic(searchUsername)
+          setSearchResults(result.results || [])
+          setShowSearchResults(true)
+        } catch (err) {
+          console.error('Search error:', err)
+          setSearchResults([])
+        } finally {
+          setIsSearching(false)
+        }
+      } else {
+        setSearchResults([])
+        setShowSearchResults(false)
+      }
+    }, 300)
+
+    return () => clearTimeout(searchTimeout)
+  }, [searchUsername])
+
+  const handleSelectUser = (selectedUser) => {
+    navigate(`/user/${selectedUser.id}`)
+    setSearchUsername('')
+    setSearchResults([])
+    setShowSearchResults(false)
   }
 
   return (
     <header className="fixed top-0 left-0 right-0 bg-white border-b border-black z-50">
       <div className="container mx-auto px-4">
-        {/* Header Top */}
         <div className="flex justify-between items-center py-4">
           <div className="flex items-center gap-3">
             <div className="bg-black border border-black p-2">
@@ -49,21 +75,44 @@ const Header = () => {
           </div>
           
           {isAuthenticated && (
-            <form onSubmit={handleSearchUsername} className="flex gap-2">
-              <input
-                type="text"
-                value={searchUsername}
-                onChange={(e) => setSearchUsername(e.target.value)}
-                placeholder="Find user..."
-                className="border border-black p-2 bg-white text-black font-bold w-56"
-              />
-              <button
-                type="submit"
-                className="border border-black bg-white text-black font-bold py-2 px-4 hover:bg-black hover:text-white transition"
-              >
-                Go
-              </button>
-            </form>
+            <div className="relative">
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={searchUsername}
+                  onChange={(e) => setSearchUsername(e.target.value)}
+                  placeholder="Find user..."
+                  className="border border-black p-2 bg-white text-black font-bold w-56"
+                />
+                <button
+                  className="border border-black bg-white text-black font-bold py-2 px-4 hover:bg-black hover:text-white transition"
+                  disabled
+                >
+                  Go
+                </button>
+              </div>
+              
+              {/* Search Results Dropdown */}
+              {showSearchResults && searchResults.length > 0 && (
+                <div className="absolute top-full left-0 right-0 mt-1 bg-white border-2 border-black shadow-lg max-h-64 overflow-y-auto z-50">
+                  {searchResults.map((result) => (
+                    <button
+                      key={result.id}
+                      onClick={() => handleSelectUser(result)}
+                      className="w-full text-left px-4 py-2 hover:bg-black hover:text-white border-b border-black transition"
+                    >
+                      <span className="font-bold">{result.username}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              
+              {showSearchResults && searchResults.length === 0 && searchUsername.trim() && !isSearching && (
+                <div className="absolute top-full left-0 right-0 mt-1 bg-white border-2 border-black p-2 text-black text-sm z-50">
+                  No users found
+                </div>
+              )}
+            </div>
           )}
           
           <nav className="flex gap-2 items-center">
@@ -137,7 +186,7 @@ const Header = () => {
 
       {showLogoutConfirm && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white border-2 border-black p-8 rounded-lg shadow-lg max-w-sm w-full mx-4">
+          <div className="bg-white border-2 border-black p-8 max-w-sm mx-4">
             <h2 className="text-2xl font-bold text-black mb-4">Confirm Logout</h2>
             <p className="text-black mb-6">Are you sure you want to logout?</p>
             <div className="flex gap-4 justify-end">

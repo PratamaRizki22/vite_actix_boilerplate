@@ -105,8 +105,64 @@ export const AuthProvider = ({ children }) => {
       setError(null);
       setLoading(true);
       const response = await authService.login(username, password);
-      // authService sudah simpan token ke localStorage
-      // Update state juga
+
+      // Check if MFA is required
+      if (response.requires_mfa) {
+        return {
+          requires_mfa: true,
+          mfa_methods: response.mfa_methods,
+          temp_token: response.temp_token,
+          user: response.user,
+        };
+      }
+
+      // If no MFA required, complete login normally
+      setToken(response.token);
+      setUser(response.user);
+      return response;
+    } catch (err) {
+      const errorMsg = err.response?.data?.error || err.message;
+      setError(errorMsg);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const verifyMFA = async (tempToken, method, code) => {
+    try {
+      setError(null);
+      setLoading(true);
+      const response = await authService.verifyMFA(tempToken, method, code);
+      setToken(response.token);
+      setUser(response.user);
+      return response;
+    } catch (err) {
+      const errorMsg = err.response?.data?.error || err.message;
+      setError(errorMsg);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const googleLogin = async (token) => {
+    try {
+      setError(null);
+      setLoading(true);
+      const response = await authService.googleLogin(token);
+
+      // Check if MFA is required
+      if (response.requires_mfa) {
+        return {
+          requires_mfa: true,
+          mfa_methods: response.mfa_methods,
+          temp_token: response.temp_token,
+          user: response.user,
+        };
+      }
+
+      // If no MFA required, complete login normally
       setToken(response.token);
       setUser(response.user);
       return response;
@@ -172,9 +228,13 @@ export const AuthProvider = ({ children }) => {
     isAuthenticated: !!token,
     register,
     login,
+    verifyMFA,
+    googleLogin,
     logout,
     getWeb3Challenge,
     verifyWeb3Signature,
+    setUser,
+    setToken,
     setError,
   };
 

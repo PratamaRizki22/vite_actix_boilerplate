@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { QRCodeSVG } from 'qrcode.react'
 import twoFactorService from '../services/twoFactorService'
 
@@ -10,6 +10,10 @@ const TwoFactorSetupPage = () => {
   const [secret, setSecret] = useState('')
   const [copied, setCopied] = useState(false)
   const navigate = useNavigate()
+  const location = useLocation()
+  
+  // Get state from location (for registration flow)
+  const { email, username, password, isRegistration, credentials } = location.state || {}
 
   useEffect(() => {
     loadQrCode()
@@ -32,6 +36,32 @@ const TwoFactorSetupPage = () => {
     navigator.clipboard.writeText(secret)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
+  }
+
+  const handleContinue = () => {
+    if (isRegistration) {
+      // For registration, go to 2FA verify with credentials
+      navigate('/2fa-verify', {
+        state: {
+          credentials: { username, password },
+          email,
+          isRegistration: true
+        }
+      })
+    } else {
+      // For existing users, go to regular 2FA verify
+      navigate('/2fa-verify')
+    }
+  }
+
+  const handleCancel = () => {
+    if (isRegistration) {
+      navigate('/auth-method-select', {
+        state: { email, username, password, isRegistration: true }
+      })
+    } else {
+      navigate('/')
+    }
   }
 
   return (
@@ -113,16 +143,16 @@ const TwoFactorSetupPage = () => {
             {/* Buttons */}
             <div className="space-y-3">
               <button
-                onClick={() => navigate('/2fa-verify')}
+                onClick={handleContinue}
                 className="w-full bg-black border border-black text-white font-bold py-2 px-4 hover:bg-white hover:text-black transition"
               >
                 I've Scanned the Code
               </button>
               <button
-                onClick={() => navigate('/')}
+                onClick={handleCancel}
                 className="w-full bg-white border border-black text-black font-bold py-2 px-4 hover:bg-black hover:text-white transition"
               >
-                Cancel
+                Back
               </button>
             </div>
           </>

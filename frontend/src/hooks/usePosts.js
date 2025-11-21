@@ -42,6 +42,14 @@ export const usePosts = (userId = null) => {
     }
   };
 
+  const updateCommentCount = (postId, count) => {
+    setPosts(prev => prev.map(post => 
+      post.id === postId 
+        ? { ...post, comments_count: count }
+        : post
+    ));
+  };
+
   useEffect(() => {
     fetchPosts();
   }, [userId]);
@@ -52,6 +60,7 @@ export const usePosts = (userId = null) => {
     error,
     createPost,
     deletePost,
+    updateCommentCount,
     refetch: fetchPosts
   };
 };

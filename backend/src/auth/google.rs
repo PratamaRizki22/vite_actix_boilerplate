@@ -7,6 +7,8 @@ use reqwest::Client;
 use crate::models::user::UserResponse;
 use crate::services::session_manager::{SessionManager, CreateSessionData};
 use crate::utils::auth::AuthUtils;
+use crate::services::mfa_service::MFAService;
+use crate::services::email_service::EmailService;
 
 #[derive(Debug, Deserialize)]
 pub struct GoogleTokenRequest {
@@ -76,7 +78,7 @@ pub async fn google_callback(
     // Check if user exists, if not create them
     let user = match sqlx::query_as!(
         crate::models::user::User,
-        "SELECT id, username, email, password, role, wallet_address, email_verified, totp_enabled, created_at, updated_at
+        "SELECT id, username, email, password, role, wallet_address, email_verified, totp_enabled, recovery_codes, created_at, updated_at
          FROM users WHERE email = $1",
         email
     )
@@ -95,7 +97,7 @@ pub async fn google_callback(
                 crate::models::user::User,
                 "INSERT INTO users (username, email, password, role, email_verified, created_at, updated_at)
                  VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
-                 RETURNING id, username, email, password, role, wallet_address, email_verified, totp_enabled, created_at, updated_at",
+                 RETURNING id, username, email, password, role, wallet_address, email_verified, totp_enabled, recovery_codes, created_at, updated_at",
                 username,
                 email,
                 "google_oauth", // Placeholder password for OAuth users
@@ -154,6 +156,47 @@ pub async fn google_callback(
         }
     }
 
+    // Always provide MFA options for Google login (same as traditional login)
+    let mut mfa_methods: Vec<String> = Vec::new();
+    // TOTP is always available as an option (user can choose to set it up if not enabled)
+    mfa_methods.push("totp".to_string());
+    // Email is always available as fallback
+    mfa_methods.push("email".to_string());
+
+    // Generate temporary MFA token (5 minutes validity) - always generated for flexibility
+    let temp_mfa_token = MFAService::generate_temp_mfa_token(
+        user.id,
+        &user.username,
+        user.email.as_deref(),
+        jwt_secret.get_ref()
+    )
+    .map_err(|_| actix_web::error::ErrorInternalServerError("MFA token generation failed"))?;
+
+    // Send email verification code proactively (only if no valid code exists)
+    let verification_code = EmailService::generate_verification_code();
+
+    // Check if user already has a valid MFA code (within last 2 minutes)
+    let existing_code = EmailService::get_mfa_verification_code(user.id);
+    let should_send_email = match existing_code {
+        Some(_) => {
+            // Already has valid code, don't send new email
+            println!("User {} already has valid MFA code, skipping email send", user.id);
+            false
+        }
+        None => {
+            // No valid code, send new email
+            EmailService::store_mfa_verification_code(user.id, &verification_code);
+            true
+        }
+    };
+
+    if should_send_email {
+        if let Some(email) = &user.email {
+            let email_service = EmailService::new().map_err(|_| actix_web::error::ErrorInternalServerError("Email service error"))?;
+            let _ = email_service.send_verification_email(email, &verification_code).await;
+        }
+    }
+
     let user_response = UserResponse {
         id: user.id,
         username: user.username,
@@ -166,10 +209,13 @@ pub async fn google_callback(
         updated_at: user.updated_at,
     };
 
+    // Always return MFA options - user must verify with MFA
     Ok(HttpResponse::Ok().json(serde_json::json!({
-        "access_token": token,
-        "refresh_token": "", // Implement refresh tokens separately if needed
-        "user": user_response
+        "requires_mfa": true, // Changed: MFA is now required
+        "mfa_methods": mfa_methods,
+        "temp_token": temp_mfa_token,
+        "user": user_response,
+        "message": "Google login successful. Please verify with MFA to complete authentication."
     })))
 }
 

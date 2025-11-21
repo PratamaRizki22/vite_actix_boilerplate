@@ -24,7 +24,7 @@ pub async fn get_all_posts(
     .unwrap_or(0);
 
     let posts = sqlx::query_as::<_, PostResponse>(
-        "SELECT p.id, p.user_id, u.username, p.title, p.content, p.created_at, p.updated_at 
+        "SELECT p.id, p.user_id, u.username, p.title, p.content, COALESCE(p.likes_count, 0) as likes_count, COALESCE(p.comments_count, 0) as comments_count, p.created_at, p.updated_at 
          FROM posts p 
          JOIN users u ON p.user_id = u.id 
          ORDER BY p.created_at DESC LIMIT $1 OFFSET $2"
@@ -63,7 +63,7 @@ pub async fn search_posts(
     let search_query = format!("{}:*", search_term.trim());
     
     let posts = sqlx::query_as::<_, PostResponse>(
-        "SELECT p.id, p.user_id, u.username, p.title, p.content, p.created_at, p.updated_at 
+        "SELECT p.id, p.user_id, u.username, p.title, p.content, COALESCE(p.likes_count, 0) as likes_count, COALESCE(p.comments_count, 0) as comments_count, p.created_at, p.updated_at 
          FROM posts p 
          JOIN users u ON p.user_id = u.id
          WHERE to_tsvector('english', p.title || ' ' || p.content) @@ to_tsquery('english', $1)
@@ -85,7 +85,7 @@ pub async fn get_posts(
         .ok_or_else(|| actix_web::error::ErrorUnauthorized("Not authenticated"))?;
 
     let posts = sqlx::query_as::<_, PostResponse>(
-        "SELECT p.id, p.user_id, u.username, p.title, p.content, p.created_at, p.updated_at 
+        "SELECT p.id, p.user_id, u.username, p.title, p.content, COALESCE(p.likes_count, 0) as likes_count, COALESCE(p.comments_count, 0) as comments_count, p.created_at, p.updated_at 
          FROM posts p 
          JOIN users u ON p.user_id = u.id 
          WHERE p.user_id = $1 ORDER BY p.created_at DESC"
@@ -132,7 +132,7 @@ pub async fn get_post(
     let post_id = path.into_inner();
 
     let post = sqlx::query_as::<_, PostResponse>(
-        "SELECT p.id, p.user_id, u.username, p.title, p.content, p.created_at, p.updated_at 
+        "SELECT p.id, p.user_id, u.username, p.title, p.content, COALESCE(p.likes_count, 0) as likes_count, COALESCE(p.comments_count, 0) as comments_count, p.created_at, p.updated_at 
          FROM posts p 
          JOIN users u ON p.user_id = u.id 
          WHERE p.id = $1 AND p.user_id = $2"

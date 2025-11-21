@@ -15,13 +15,16 @@ const ProtectedRoute = ({ children, requiredRole = null }) => {
     );
   }
 
+  // Check if user is authenticated (either from state or token exists)
+  const isAuthenticated = user || localStorage.getItem('token');
+
   // If not authenticated at all, redirect to login
-  if (!user) {
+  if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
   }
 
   // If role is required and doesn't match, show access denied
-  if (requiredRole && user.role !== requiredRole) {
+  if (requiredRole && (!user || user.role !== requiredRole)) {
     return (
       <div className="min-h-screen bg-white flex items-center justify-center p-4">
         <div className="text-center border border-black p-8">

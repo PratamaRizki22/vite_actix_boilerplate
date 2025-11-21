@@ -12,6 +12,7 @@ use crate::services::token_blacklist::TokenBlacklist;
 use crate::services::account_lockout::AccountLockout;
 use crate::services::audit_logger::AuditLogger;
 use crate::services::refresh_token_service::RefreshTokenService;
+use crate::services::mfa_service::MFAService;
 use crate::utils::auth::AuthUtils;
 
 pub async fn login(
@@ -40,7 +41,7 @@ pub async fn login(
 
     let user = sqlx::query_as!(
         User,
-        "SELECT id, username, email, password, role, wallet_address, email_verified, totp_enabled, created_at, updated_at
+        "SELECT id, username, email, password, role, wallet_address, email_verified, totp_enabled, recovery_codes, created_at, updated_at
          FROM users WHERE username = $1 OR email = $1 OR wallet_address = $1",
         login_identifier
     )
@@ -210,9 +211,12 @@ pub async fn login(
         ).await;
 
         let response = LoginResponse {
-            token,
-            refresh_token,
+            token: Some(token),
+            refresh_token: Some(refresh_token),
             user: UserResponse::from(user),
+            requires_mfa: false,
+            mfa_methods: None,
+            temp_token: None,
         };
 
         return Ok(HttpResponse::Ok().json(response));
@@ -250,14 +254,254 @@ pub async fn login(
         })));
     }
 
-    // Create JWT token
-    let token = AuthUtils::create_token(user.id, &user.username, &user.role, jwt_secret.get_ref())
-        .map_err(|_| actix_web::error::ErrorInternalServerError("Token creation failed"))?;
-
-    // Reset failed login attempts on successful login
+    // Reset failed login attempts on successful password verification
     if let Err(e) = AccountLockout::reset_attempts(pool.get_ref(), user.id).await {
         eprintln!("Error resetting lockout attempts: {}", e);
     }
+
+    // Reset rate limit on successful login
+    RateLimiter::reset(&req, "login");
+
+    // Check if user has 2FA enabled
+    let has_2fa_enabled = user.totp_enabled.unwrap_or(false);
+
+    // If 2FA is NOT enabled, allow direct login without MFA
+    if !has_2fa_enabled {
+        println!("User {} does not have 2FA enabled - allowing direct login", user.username);
+        return complete_login(pool, jwt_secret, req, user).await;
+    }
+
+    // User has 2FA enabled - require MFA verification
+    let mut mfa_methods: Vec<String> = Vec::new();
+    // TOTP is primary method if enabled
+    if has_2fa_enabled {
+        mfa_methods.push("totp".to_string());
+    }
+    // Email is always available as fallback
+    if user.email.is_some() {
+        mfa_methods.push("email".to_string());
+    }
+
+    // Generate temporary MFA token (5 minutes validity)
+    let temp_mfa_token = MFAService::generate_temp_mfa_token(
+        user.id,
+        &user.username,
+        user.email.as_deref(),
+        jwt_secret.get_ref()
+    )
+    .map_err(|_| actix_web::error::ErrorInternalServerError("MFA token generation failed"))?;
+
+    // Return MFA challenge
+    return Ok(HttpResponse::Ok().json(serde_json::json!({
+        "requires_mfa": true,
+        "mfa_methods": mfa_methods,
+        "temp_token": temp_mfa_token,
+        "user": UserResponse::from(user),
+        "message": "Login successful. Please verify with 2FA to complete authentication."
+    })));
+}
+
+pub async fn verify_mfa(
+    pool: web::Data<PgPool>,
+    jwt_secret: web::Data<String>,
+    req: HttpRequest,
+    verify_data: web::Json<crate::models::auth::MFAVerifyRequest>,
+) -> Result<HttpResponse> {
+    // SECURITY: Rate limiting for MFA verification - 10 attempts per 5 minutes
+    let (is_allowed, _remaining, reset_seconds) = 
+        RateLimiter::check_limit(&req, "verify_mfa", 10, 5);
+
+    if !is_allowed {
+        return Ok(HttpResponse::TooManyRequests().json(serde_json::json!({
+            "error": "Too many MFA verification attempts. Please try again later.",
+            "retry_after": reset_seconds
+        })));
+    }
+
+    // Verify temp MFA token
+    let mfa_claims = MFAService::verify_mfa_token(&verify_data.temp_token, jwt_secret.get_ref())
+        .map_err(|_| actix_web::error::ErrorUnauthorized("Invalid or expired MFA token"))?;
+
+    // Get user from database
+    let user = sqlx::query_as!(
+        User,
+        "SELECT id, username, email, password, role, wallet_address, email_verified, totp_enabled, recovery_codes, created_at, updated_at
+         FROM users WHERE id = $1",
+        mfa_claims.user_id
+    )
+    .fetch_optional(pool.get_ref())
+    .await
+    .map_err(|_| actix_web::error::ErrorInternalServerError("Database error"))?
+    .ok_or_else(|| actix_web::error::ErrorNotFound("User not found"))?;
+
+    // Verify the code based on method
+    match verify_data.method.as_str() {
+        "totp" => {
+            // Check if this is a setup request (empty code)
+            if verify_data.code.trim().is_empty() {
+                // SECURITY: Only allow QR code generation if TOTP is NOT enabled yet
+                // This prevents showing QR code during login (security risk!)
+                if user.totp_enabled.unwrap_or(false) {
+                    return Ok(HttpResponse::BadRequest().json(serde_json::json!({
+                        "error": "2FA is already enabled. Please enter your authentication code."
+                    })));
+                }
+
+                // Check if user already has totp_secret (from profile setup)
+                let existing_secret = sqlx::query!(
+                    "SELECT totp_secret FROM users WHERE id = $1",
+                    user.id
+                )
+                .fetch_one(pool.get_ref())
+                .await
+                .map_err(|_| actix_web::error::ErrorInternalServerError("Failed to get user data"))?
+                .totp_secret;
+
+                // If secret already exists, this is profile setup - return it
+                if let Some(secret) = existing_secret {
+                    let qr_code_url = format!(
+                        "otpauth://totp/USH:{}?secret={}&issuer=USH&algorithm=SHA1&digits=6&period=30",
+                        user.username, secret
+                    );
+                    
+                    println!("DEBUG: Returning existing TOTP setup for profile/registration");
+                    return Ok(HttpResponse::Ok().json(serde_json::json!({
+                        "setup_required": true,
+                        "secret": secret,
+                        "qr_code_url": qr_code_url,
+                        "message": "Please scan this QR code with your authenticator app, then enter the 6-digit code to complete setup."
+                    })));
+                }
+
+                // If no secret exists and totp_enabled is false, this might be a login attempt
+                // SECURITY: Reject this - we should never generate new QR during login
+                println!("SECURITY WARNING: Attempted to generate QR code during login - REJECTED");
+                return Ok(HttpResponse::BadRequest().json(serde_json::json!({
+                    "error": "2FA setup must be completed during registration or from profile settings, not during login."
+                })));
+            }
+
+            let user_data = sqlx::query!(
+                "SELECT totp_secret, recovery_codes FROM users WHERE id = $1",
+                user.id
+            )
+            .fetch_one(pool.get_ref())
+            .await
+            .map_err(|_| actix_web::error::ErrorInternalServerError("Failed to get TOTP secret"))?;
+
+            let totp_secret = user_data.totp_secret
+                .ok_or_else(|| actix_web::error::ErrorBadRequest("TOTP secret not found. Please set up 2FA first."))?;
+
+            // Try to verify as TOTP code first
+            let mut is_valid = crate::utils::totp::verify_totp_code(&totp_secret, &verify_data.code)
+                .unwrap_or(false);
+
+            // If TOTP fails, check if it's a recovery code
+            if !is_valid {
+                if let Some(recovery_codes) = user_data.recovery_codes {
+                    if recovery_codes.contains(&verify_data.code) {
+                        println!("✓ Valid recovery code used by user: {}", user.username);
+                        is_valid = true;
+                        
+                        // Log recovery code usage for security audit
+                        let ip_address = req.connection_info()
+                            .peer_addr()
+                            .map(|s| s.to_string());
+                        let user_agent = req.headers()
+                            .get("User-Agent")
+                            .and_then(|h| h.to_str().ok())
+                            .map(|s| s.to_string());
+                        
+                        let _ = AuditLogger::log(
+                            pool.get_ref(),
+                            Some(user.id),
+                            "RECOVERY_CODE_USED",
+                            &format!("Recovery code used for 2FA bypass - {} codes remaining", recovery_codes.len() - 1),
+                            ip_address.as_deref(),
+                            user_agent.as_deref(),
+                            AuditLogger::STATUS_SUCCESS,
+                            Some(serde_json::json!({
+                                "recovery_codes_remaining": recovery_codes.len() - 1,
+                                "method": "recovery_code"
+                            })),
+                        ).await;
+                        
+                        // Remove used recovery code from database
+                        let remaining_codes: Vec<String> = recovery_codes
+                            .into_iter()
+                            .filter(|c| c != &verify_data.code)
+                            .collect();
+                        
+                        sqlx::query!(
+                            "UPDATE users SET recovery_codes = $1 WHERE id = $2",
+                            &remaining_codes,
+                            user.id
+                        )
+                        .execute(pool.get_ref())
+                        .await
+                        .map_err(|_| actix_web::error::ErrorInternalServerError("Failed to update recovery codes"))?;
+                    }
+                }
+            }
+
+            if !is_valid {
+                return Ok(HttpResponse::Unauthorized().json(serde_json::json!({
+                    "error": "Invalid TOTP code or recovery code"
+                })));
+            }
+
+            // If TOTP was not enabled but verification succeeded, enable it now
+            if !user.totp_enabled.unwrap_or(false) {
+                sqlx::query!(
+                    "UPDATE users SET totp_enabled = true WHERE id = $1",
+                    user.id
+                )
+                .execute(pool.get_ref())
+                .await
+                .map_err(|_| actix_web::error::ErrorInternalServerError("Failed to enable 2FA"))?;
+            }
+        }
+        "email" => {
+            // SECURITY: Check if email code has expired
+            if let Some(expiry) = EmailService::get_mfa_code_expiry(user.id) {
+                if expiry <= chrono::Utc::now() {
+                    EmailService::clear_mfa_verification_code(user.id);
+                    return Ok(HttpResponse::Unauthorized().json(serde_json::json!({
+                        "error": "Email verification code has expired. Please request a new code."
+                    })));
+                }
+            }
+            
+            // Verify email code
+            let stored_code = EmailService::get_mfa_verification_code(user.id);
+            if stored_code.as_deref() != Some(&verify_data.code) {
+                return Ok(HttpResponse::Unauthorized().json(serde_json::json!({
+                    "error": "Invalid email verification code"
+                })));
+            }
+            // Clear the code after successful verification
+            EmailService::clear_mfa_verification_code(user.id);
+        }
+        _ => {
+            return Ok(HttpResponse::BadRequest().json(serde_json::json!({
+                "error": "Invalid verification method"
+            })));
+        }
+    }
+
+    // MFA verification successful - complete login
+    complete_login(pool, jwt_secret, req, user).await
+}
+
+async fn complete_login(
+    pool: web::Data<PgPool>,
+    jwt_secret: web::Data<String>,
+    req: HttpRequest,
+    user: User,
+) -> Result<HttpResponse> {
+    // Create JWT token
+    let token = AuthUtils::create_token(user.id, &user.username, &user.role, jwt_secret.get_ref())
+        .map_err(|_| actix_web::error::ErrorInternalServerError("Token creation failed"))?;
 
     // Create session in database
     let device_name = req.headers()
@@ -289,19 +533,7 @@ pub async fn login(
 
     if let Err(e) = SessionManager::create_session(pool.get_ref(), session_data).await {
         eprintln!("Failed to create session: {}", e);
-        // Don't fail login if session creation fails
     }
-
-    // Reset rate limit on successful login
-    RateLimiter::reset(&req, "login");
-
-    // Log successful login
-    let _ = AuditLogger::log_login(
-        pool.get_ref(),
-        user.id,
-        ip_address.as_deref(),
-        user_agent.as_deref(),
-    ).await;
 
     // Generate refresh token
     let refresh_token = RefreshTokenService::generate_token();
@@ -311,14 +543,26 @@ pub async fn login(
         &refresh_token,
     ).await;
 
+    // Log successful login
+    let _ = AuditLogger::log_login(
+        pool.get_ref(),
+        user.id,
+        ip_address.as_deref(),
+        user_agent.as_deref(),
+    ).await;
+
     let response = LoginResponse {
-        token,
-        refresh_token,
+        token: Some(token),
+        refresh_token: Some(refresh_token),
         user: UserResponse::from(user),
+        requires_mfa: false,
+        mfa_methods: None,
+        temp_token: None,
     };
 
     Ok(HttpResponse::Ok().json(response))
 }
+
 
 pub async fn logout(req: HttpRequest, pool: web::Data<PgPool>) -> Result<HttpResponse> {
     let current_user = get_current_user(&req)
@@ -365,15 +609,19 @@ pub async fn logout(req: HttpRequest, pool: web::Data<PgPool>) -> Result<HttpRes
     }
 
     // Log logout
-    let _ = AuditLogger::log_logout(
+    let _ = AuditLogger::log(
         pool.get_ref(),
-        current_user.sub,
+        Some(current_user.sub),
+        AuditLogger::EVENT_LOGOUT,
+        "User logged out",
         ip_address.as_deref(),
         user_agent.as_deref(),
+        AuditLogger::STATUS_SUCCESS,
+        None,
     ).await;
 
     Ok(HttpResponse::Ok().json(serde_json::json!({
-        "message": "Successfully logged out"
+        "message": "Logged out successfully"
     })))
 }
 
@@ -387,7 +635,7 @@ pub async fn me(
     // Fetch full user data from database to get totp_enabled status
     let user = sqlx::query_as!(
         User,
-        "SELECT id, username, email, password, role, wallet_address, email_verified, totp_enabled, created_at, updated_at
+        "SELECT id, username, email, password, role, wallet_address, email_verified, totp_enabled, recovery_codes, created_at, updated_at
          FROM users WHERE id = $1",
         current_user.sub
     )
@@ -419,7 +667,7 @@ pub async fn register(
         User,
         "INSERT INTO users (username, email, password, role, email_verified)
          VALUES ($1, $2, $3, 'user', false)
-         RETURNING id, username, email, password, role, wallet_address, email_verified, totp_enabled, created_at, updated_at",
+         RETURNING id, username, email, password, role, wallet_address, email_verified, totp_enabled, recovery_codes, created_at, updated_at",
         temp_username,
         register_data.email,
         hashed_password
@@ -473,5 +721,10 @@ pub async fn register(
         }
     }
 
-    Ok(HttpResponse::Created().json(UserResponse::from(user)))
+    Ok(HttpResponse::Created().json(serde_json::json!({
+        "message": "Registration successful. Verification email sent.",
+        "user": UserResponse::from(user)
+    })))
 }
+
+

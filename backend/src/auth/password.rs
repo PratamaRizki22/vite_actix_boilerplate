@@ -28,7 +28,7 @@ pub async fn request_password_reset(
     // Check if user exists with this email
     let user = sqlx::query_as!(
         User,
-        "SELECT id, username, email, password, role, wallet_address, email_verified, totp_enabled, created_at, updated_at
+        "SELECT id, username, email, password, role, wallet_address, email_verified, totp_enabled, recovery_codes, created_at, updated_at
          FROM users WHERE email = $1",
         reset_data.email
     )
@@ -108,7 +108,7 @@ pub async fn reset_password(
     // Find user by email
     let user = sqlx::query_as!(
         User,
-        "SELECT id, username, email, password, role, wallet_address, email_verified, totp_enabled, created_at, updated_at
+        "SELECT id, username, email, password, role, wallet_address, email_verified, totp_enabled, recovery_codes, created_at, updated_at
          FROM users WHERE email = $1",
         email
     )
@@ -178,4 +178,62 @@ pub async fn test_email_service() -> Result<HttpResponse> {
             "error": format!("{}", e)
         })))
     }
+}
+
+pub async fn change_password(
+    req: HttpRequest,
+    pool: web::Data<PgPool>,
+    change_data: web::Json<crate::models::auth::ChangePasswordRequest>,
+) -> Result<HttpResponse> {
+    // Get current user from JWT
+    let current_user = crate::middleware::auth::get_current_user(&req)
+        .ok_or_else(|| actix_web::error::ErrorUnauthorized("Not authenticated"))?;
+
+    // Get user from database
+    let user = sqlx::query_as!(
+        User,
+        "SELECT id, username, email, password, role, wallet_address, email_verified, totp_enabled, recovery_codes, created_at, updated_at
+         FROM users WHERE id = $1",
+        current_user.sub
+    )
+    .fetch_optional(pool.get_ref())
+    .await
+    .map_err(|_| actix_web::error::ErrorInternalServerError("Database error"))?
+    .ok_or_else(|| actix_web::error::ErrorNotFound("User not found"))?;
+
+    // Verify current password
+    let is_password_valid = AuthUtils::verify_password(&change_data.current_password, &user.password)
+        .map_err(|_| actix_web::error::ErrorInternalServerError("Password verification failed"))?;
+
+    if !is_password_valid {
+        return Ok(HttpResponse::Unauthorized().json(serde_json::json!({
+            "error": "Current password is incorrect"
+        })));
+    }
+
+    // Validate new password
+    if let Err(e) = crate::utils::validation::validate_password(&change_data.new_password) {
+        return Ok(HttpResponse::BadRequest().json(serde_json::json!({
+            "error": format!("Invalid password: {}", e)
+        })));
+    }
+
+    // Hash new password
+    let hashed_password = AuthUtils::hash_password(&change_data.new_password)
+        .map_err(|_| actix_web::error::ErrorInternalServerError("Password hashing failed"))?;
+
+    // Update password in database
+    sqlx::query!(
+        "UPDATE users SET password = $1, updated_at = NOW() WHERE id = $2",
+        hashed_password,
+        current_user.sub
+    )
+    .execute(pool.get_ref())
+    .await
+    .map_err(|_| actix_web::error::ErrorInternalServerError("Failed to update password"))?;
+
+    Ok(HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "message": "Password changed successfully"
+    })))
 }
