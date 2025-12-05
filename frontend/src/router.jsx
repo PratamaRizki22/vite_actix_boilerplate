@@ -14,13 +14,15 @@ import TwoFactorVerifyPage from './pages/TwoFactorVerifyPage';
 import OTPVerifyPage from './pages/OTPVerifyPage';
 import DashboardPage from './pages/DashboardPage';
 import AuthMethodSelectPage from './pages/AuthMethodSelectPage';
+import ForgotPasswordPage from './pages/ForgotPasswordPage';
+import ResetPasswordPage from './pages/ResetPasswordPage';
 import ProtectedRoute from './components/ProtectedRoute';
 import { AuthProvider, useAuth } from './context/AuthContext';
 
 // Landing component that redirects based on authentication
 const LandingPage = () => {
   const { isAuthenticated, loading } = useAuth();
-  
+
   if (loading) {
     return (
       <div className="min-h-screen bg-white flex items-center justify-center p-4">
@@ -30,11 +32,11 @@ const LandingPage = () => {
       </div>
     );
   }
-  
+
   if (isAuthenticated) {
     return <HomePage />;
   }
-  
+
   // Redirect to login if not authenticated
   return <Navigate to="/login" replace />;
 };
@@ -63,6 +65,14 @@ const router = createBrowserRouter([
       {
         path: 'auth-method-select',
         element: <AuthMethodSelectPage />
+      },
+      {
+        path: 'forgot-password',
+        element: <ForgotPasswordPage />
+      },
+      {
+        path: 'reset-password',
+        element: <ResetPasswordPage />
       },
       {
         path: 'web3-auth',
@@ -113,7 +123,7 @@ const router = createBrowserRouter([
         )
       },
       {
-        path: 'posts', 
+        path: 'posts',
         element: (
           <ProtectedRoute>
             <PostsPage />

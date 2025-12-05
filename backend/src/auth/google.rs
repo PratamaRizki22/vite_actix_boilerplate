@@ -172,29 +172,20 @@ pub async fn google_callback(
     )
     .map_err(|_| actix_web::error::ErrorInternalServerError("MFA token generation failed"))?;
 
-    // Send email verification code proactively (only if no valid code exists)
+    // Generate MFA verification code but DON'T send email yet
+    // Email will be sent only when user selects "Email OTP" from auth-method-select page
     let verification_code = EmailService::generate_verification_code();
-
-    // Check if user already has a valid MFA code (within last 2 minutes)
+    
+    // Check if user already has a valid MFA code
     let existing_code = EmailService::get_mfa_verification_code(user.id);
-    let should_send_email = match existing_code {
-        Some(_) => {
-            // Already has valid code, don't send new email
-            println!("User {} already has valid MFA code, skipping email send", user.id);
-            false
-        }
-        None => {
-            // No valid code, send new email
-            EmailService::store_mfa_verification_code(user.id, &verification_code);
-            true
-        }
-    };
-
-    if should_send_email {
-        if let Some(email) = &user.email {
-            let email_service = EmailService::new().map_err(|_| actix_web::error::ErrorInternalServerError("Email service error"))?;
-            let _ = email_service.send_verification_email(email, &verification_code).await;
-        }
+    
+    if existing_code.is_none() {
+        // Store code for later use (when user selects Email OTP)
+        // But don't send email automatically to avoid double sending
+        EmailService::store_mfa_verification_code(user.id, &verification_code);
+        println!("MFA code generated and stored for user {} (not sent yet)", user.id);
+    } else {
+        println!("User {} already has valid MFA code, keeping existing code", user.id);
     }
 
     let user_response = UserResponse {
@@ -205,6 +196,7 @@ pub async fn google_callback(
         wallet_address: user.wallet_address,
         email_verified: user.email_verified,
         two_factor_enabled: user.totp_enabled.unwrap_or(false),
+        has_password: !user.password.is_empty(),
         created_at: user.created_at,
         updated_at: user.updated_at,
     };

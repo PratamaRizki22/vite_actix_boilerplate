@@ -8,12 +8,15 @@ import twoFactorService from '../services/twoFactorService';
 const ProfilePage = () => {
   const { user, setError: setAuthError } = useAuth();
   const navigate = useNavigate();
-  
+
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [isEditingUsername, setIsEditingUsername] = useState(false);
   const [isEditingEmail, setIsEditingEmail] = useState(false);
-  const [currentPassword, setCurrentPassword] = useState('');
+  const [verificationCode, setVerificationCode] = useState('');
+  const [verificationMethod, setVerificationMethod] = useState('email'); // 'email' or 'totp'
+  const [showVerificationInput, setShowVerificationInput] = useState(false);
+  const [sendingCode, setSendingCode] = useState(false);
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -31,80 +34,460 @@ const ProfilePage = () => {
   const [recoveryCodes, setRecoveryCodes] = useState([]);
   const [copied, setCopied] = useState(false);
   const [copiedCodes, setCopiedCodes] = useState(false);
+  const [showPasswordConfirm, setShowPasswordConfirm] = useState(false);
+  const [showUnlinkWalletConfirm, setShowUnlinkWalletConfirm] = useState(false);
+  const [showDisable2FAConfirm, setShowDisable2FAConfirm] = useState(false);
+  const [passwordConfirmValue, setPasswordConfirmValue] = useState('');
+  const [pendingUpdateData, setPendingUpdateData] = useState(null);
+  const [passwordChangeStep, setPasswordChangeStep] = useState(0); // 0: Initial, 1: Verification, 2: New Password
+  const [tempToken, setTempToken] = useState('');
+  const [countdown, setCountdown] = useState(0);
+  const [show2FAConfirm, setShow2FAConfirm] = useState(false);
+  const [twoFACode, setTwoFACode] = useState('');
   const qrCodeRef = useRef(null);
 
-  // Refresh user data from localStorage/API
-  const refreshUserData = async () => {
-    try {
-      // First check localStorage
-      const storedUser = localStorage.getItem('user');
-      if (storedUser) {
-        const parsedUser = JSON.parse(storedUser);
-        setUsername(parsedUser.username || '');
-        setEmail(parsedUser.email || '');
-        setIs2FAEnabled(parsedUser.two_factor_enabled || false);
+  // Countdown timer effect
+  useEffect(() => {
+    if (countdown > 0) {
+      const timer = setTimeout(() => setCountdown(countdown - 1), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [countdown]);
+
+  // Initialize state from user object and fetch fresh data
+  useEffect(() => {
+    const initData = async () => {
+      if (user) {
+        setUsername(user.username || '');
+        setEmail(user.email || '');
+        setIs2FAEnabled(user.two_factor_enabled || user.totp_enabled || false);
       }
 
-      // Then fetch fresh data from API
-      const token = localStorage.getItem('token');
-      if (token) {
-        const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/auth/me`, {
-          headers: {
-            Authorization: `Bearer ${token}`
+      // Fetch fresh user data to ensure 2FA status is accurate
+      try {
+        const token = localStorage.getItem('token');
+        if (token) {
+          const response = await axios.get(`${import.meta.env.VITE_API_BASE_URL}/api/auth/me`, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          if (response.data.user) {
+            const userData = response.data.user;
+            setUsername(userData.username || '');
+            setEmail(userData.email || '');
+            setIs2FAEnabled(userData.two_factor_enabled || userData.totp_enabled || false);
           }
-        });
-        if (response.ok) {
-          const userData = await response.json();
-          localStorage.setItem('user', JSON.stringify(userData));
-          setUsername(userData.username || '');
-          setEmail(userData.email || '');
-          setIs2FAEnabled(userData.two_factor_enabled || false);
         }
+      } catch (err) {
+        console.error('Failed to fetch fresh profile data:', err);
       }
+    };
+
+    initData();
+  }, [user]);
+
+  // Update verification method based on 2FA status
+  useEffect(() => {
+    if (is2FAEnabled) {
+      setVerificationMethod('totp');
+      setShowVerificationInput(true); // TOTP always ready
+    } else {
+      setVerificationMethod('email');
+      setShowVerificationInput(false);
+    }
+  }, [is2FAEnabled]);
+
+  const handleSendVerificationCode = async () => {
+    setError('');
+    setSuccess('');
+    setSendingCode(true);
+
+    try {
+      await axios.post(
+        `${import.meta.env.VITE_API_BASE_URL}/api/auth/email/send-verification`,
+        { email: user.email }
+      );
+
+      setSuccess('Verification code sent to your email.');
+      setShowVerificationInput(true);
+      setCountdown(60);
     } catch (err) {
-      console.error('Error refreshing user data:', err);
+      console.error('Send verification error:', err);
+      const errorMsg = err.response?.data?.error || err.message || 'Failed to send verification code';
+      setError(errorMsg);
+    } finally {
+      setSendingCode(false);
     }
   };
 
-  // Update form when user data loads
-  useEffect(() => {
-    if (user) {
-      console.log('User data loaded:', user);
-      setUsername(user.username || '');
-      setEmail(user.email || '');
-      // Set 2FA status from user data
-      setIs2FAEnabled(user.two_factor_enabled || false);
+  const handleNextStep = async () => {
+    setError('');
+    setSuccess('');
+    setLoading(true);
+
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.post(
+        `${import.meta.env.VITE_API_BASE_URL}/api/auth/password/verify-code`,
+        {
+          verification_code: verificationCode,
+          verification_method: verificationMethod
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      if (response.data.success) {
+        setTempToken(response.data.temp_token);
+        setPasswordChangeStep(2);
+        setSuccess('Code verified successfully');
+        setTimeout(() => setSuccess(''), 2000);
+      }
+    } catch (err) {
+      console.error('Verification error:', err);
+      const errorMsg = err.response?.data?.error || err.message || 'Failed to verify code';
+      setError(errorMsg);
+    } finally {
+      setLoading(false);
     }
-  }, [user]);
+  };
 
-  // Refresh user data on mount and when auth updates
-  useEffect(() => {
-    refreshUserData();
+  const handleConfirmUpdateWith2FA = async () => {
+    if (!twoFACode) {
+      setError('Please enter your 2FA code');
+      return;
+    }
 
-    const handleAuthUpdate = () => {
-      console.log('Auth update detected, refreshing user data...');
-      refreshUserData();
-    };
+    setLoading(true);
+    setError('');
 
-    window.addEventListener('auth-update', handleAuthUpdate);
-    return () => window.removeEventListener('auth-update', handleAuthUpdate);
-  }, []);
+    try {
+      const token = localStorage.getItem('token');
+      const updateData = {
+        ...pendingUpdateData,
+        verification_code: twoFACode
+      };
 
-  if (!user) {
-    return (
-      <div className="min-h-screen bg-white flex items-center justify-center p-4">
-        <div className="text-center">
-          <p className="text-black font-bold mb-4">Please login to view your profile</p>
-          <button
-            onClick={() => navigate('/login')}
-            className="px-6 py-2 border border-black bg-white text-black font-bold hover:bg-black hover:text-white transition"
-          >
-            Go to Login
-          </button>
-        </div>
-      </div>
-    );
-  }
+      const response = await axios.put(
+        `${import.meta.env.VITE_API_BASE_URL}/api/auth/profile`,
+        updateData,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      // Update localStorage with new user data
+      localStorage.setItem('user', JSON.stringify(response.data));
+
+      // If email was updated, handle verification flow
+      if (updateData.email) {
+        setSuccess('Profile updated! Please verify your new email.');
+        // Send verification email
+        try {
+          await axios.post(`${import.meta.env.VITE_API_BASE_URL}/api/auth/email/send-verification`, { email: updateData.email });
+        } catch (emailErr) {
+          console.error('Failed to send verification email:', emailErr);
+          setError('Profile updated but failed to send verification email. Please request it manually.');
+        }
+
+        // Redirect to OTP page
+        setTimeout(() => {
+          navigate('/verify-otp', { state: { email: updateData.email, isRegistration: true } });
+        }, 1500);
+        return;
+      }
+
+      setSuccess('Profile updated successfully!');
+      setIsEditingUsername(false);
+      setIsEditingEmail(false);
+      setShow2FAConfirm(false);
+      setTwoFACode('');
+      setPendingUpdateData(null);
+    } catch (err) {
+      console.error('Update profile 2FA error:', err);
+      const errorMsg = err.response?.data?.error || err.message || 'Failed to update profile';
+      setError(errorMsg);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUpdateProfile = async (e) => {
+    if (e) e.preventDefault();
+    setError('');
+    setSuccess('');
+    setLoading(true);
+
+    try {
+      const token = localStorage.getItem('token');
+      const updateData = {};
+
+      // Only add fields that have changed
+      if (username && username !== user.username) {
+        if (!is2FAEnabled) {
+          setError('Two-factor authentication (2FA) must be enabled to update your username.');
+          setLoading(false);
+          return;
+        }
+        updateData.username = username;
+      }
+      if (email && email !== user.email) {
+        if (!is2FAEnabled) {
+          setError('Two-factor authentication (2FA) must be enabled to update your email.');
+          setLoading(false);
+          return;
+        }
+        updateData.email = email;
+      }
+
+      if (Object.keys(updateData).length === 0) {
+        setError('No profile changes made');
+        setLoading(false);
+        return;
+      }
+
+      // If there are updates, do them
+      try {
+        const response = await axios.put(
+          `${import.meta.env.VITE_API_BASE_URL}/api/auth/profile`,
+          updateData,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+          }
+        );
+
+        // Update localStorage with new user data
+        localStorage.setItem('user', JSON.stringify(response.data));
+
+        // If email was updated, handle verification flow
+        if (updateData.email) {
+          setSuccess('Profile updated! Please verify your new email.');
+          // Send verification email
+          try {
+            await axios.post(`${import.meta.env.VITE_API_BASE_URL}/api/auth/email/send-verification`, { email: updateData.email });
+          } catch (emailErr) {
+            console.error('Failed to send verification email:', emailErr);
+            setError('Profile updated but failed to send verification email. Please request it manually.');
+          }
+
+          // Redirect to OTP page
+          setTimeout(() => {
+            navigate('/verify-otp', { state: { email: updateData.email, isRegistration: true } });
+          }, 1500);
+          return;
+        }
+
+        setSuccess('Profile updated successfully!');
+        setIsEditingUsername(false);
+        setIsEditingEmail(false);
+      } catch (err) {
+        // Check if 2FA confirmation is required
+        if (err.response?.data?.require_2fa) {
+          setPendingUpdateData(updateData);
+          setShow2FAConfirm(true);
+          setLoading(false);
+          return;
+        }
+        // Check if password confirmation is required (legacy)
+        if (err.response?.data?.require_password) {
+          setPendingUpdateData(updateData);
+          setShowPasswordConfirm(true);
+          setLoading(false);
+          return;
+        }
+        throw err;
+      }
+
+      setLoading(false);
+    } catch (err) {
+      console.error('Update profile error:', err);
+      const errorMsg = err.response?.data?.error || err.message || 'Failed to update profile';
+      setError(errorMsg);
+      setLoading(false);
+    }
+  };
+
+  const handleUpdatePassword = async (e) => {
+    if (e) e.preventDefault();
+    setError('');
+    setSuccess('');
+    setLoading(true);
+
+    try {
+      const token = localStorage.getItem('token');
+
+      if (!newPassword) {
+        setError('Please enter a new password');
+        setLoading(false);
+        return;
+      }
+
+      if (!verificationCode) {
+        setError('Verification code is required');
+        setLoading(false);
+        return;
+      }
+
+      if (newPassword !== confirmPassword) {
+        setError('Passwords do not match');
+        setLoading(false);
+        return;
+      }
+      if (newPassword.length < 8) {
+        setError('Password must be at least 8 characters');
+        setLoading(false);
+        return;
+      }
+      if (!/[A-Z]/.test(newPassword) || !/[a-z]/.test(newPassword) || !/[0-9]/.test(newPassword)) {
+        setError('Password must contain uppercase, lowercase, and number');
+        setLoading(false);
+        return;
+      }
+
+      // Call dedicated password change endpoint
+      try {
+        await axios.post(
+          `${import.meta.env.VITE_API_BASE_URL}/api/auth/password/change`,
+          {
+            verification_code: verificationCode,
+            verification_method: verificationMethod,
+            temp_token: tempToken,
+            new_password: newPassword
+          },
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+          }
+        );
+
+        setSuccess('Password updated successfully!');
+        // Clear password fields
+        setVerificationCode('');
+        setTempToken('');
+        setNewPassword('');
+        setConfirmPassword('');
+        setPasswordChangeStep(0);
+        if (verificationMethod === 'email') {
+          setShowVerificationInput(false);
+        }
+      } catch (passwordErr) {
+        console.error('Password change error:', passwordErr);
+        const errorMsg = passwordErr.response?.data?.error || passwordErr.message || 'Failed to change password';
+        setError(errorMsg);
+      }
+
+      setLoading(false);
+    } catch (err) {
+      console.error('Update password error:', err);
+      setError('Failed to update password');
+      setLoading(false);
+    }
+  };
+
+  const handleConfirmPasswordUpdate = async () => {
+    if (!passwordConfirmValue) {
+      setError('Password is required');
+      return;
+    }
+
+    setLoading(true);
+    setShowPasswordConfirm(false);
+
+    try {
+      const token = localStorage.getItem('token');
+      const updateData = {
+        ...pendingUpdateData,
+        current_password: passwordConfirmValue
+      };
+
+      const response = await axios.put(
+        `${import.meta.env.VITE_API_BASE_URL}/api/auth/profile`,
+        updateData,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      // Update localStorage with new user data
+      localStorage.setItem('user', JSON.stringify(response.data));
+
+      // If email was updated, handle verification flow
+      if (updateData.email) {
+        setSuccess('Profile updated! Please verify your new email.');
+        // Send verification email
+        try {
+          await axios.post(`${import.meta.env.VITE_API_BASE_URL}/api/auth/email/send-verification`, { email: updateData.email });
+        } catch (emailErr) {
+          console.error('Failed to send verification email:', emailErr);
+        }
+
+        // Redirect to OTP page
+        setTimeout(() => {
+          navigate('/verify-otp', { state: { email: updateData.email, isRegistration: true } });
+        }, 1500);
+      } else {
+        setSuccess('Profile updated successfully!');
+      }
+
+      setPendingUpdateData(null);
+      setPasswordConfirmValue('');
+    } catch (err) {
+      console.error('Update profile error:', err);
+      const errorMsg = err.response?.data?.error || err.message || 'Failed to update profile';
+      setError(errorMsg);
+      // Re-open modal if password was wrong
+      if (errorMsg.toLowerCase().includes('password')) {
+        setShowPasswordConfirm(true);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSendVerificationEmail = async () => {
+    setError('');
+    setSuccess('');
+    setVerifyEmailLoading(true);
+
+    try {
+      const response = await axios.post(
+        `${import.meta.env.VITE_API_BASE_URL}/api/auth/email/send-verification`,
+        { email: user.email }
+      );
+
+      setSuccess('Verification email sent! Check your inbox.');
+
+      // Navigate to OTP verify page
+      setTimeout(() => {
+        navigate('/verify-otp', {
+          state: {
+            email: user.email,
+            isFromProfilePage: true
+          }
+        });
+      }, 2000);
+    } catch (err) {
+      console.error('Send verification error:', err);
+      const errorMsg = err.response?.data?.error || err.message || 'Failed to send verification email';
+      setError(errorMsg);
+    } finally {
+      setVerifyEmailLoading(false);
+    }
+  };
 
   // 2FA Setup Functions
   const load2FAQrCode = async () => {
@@ -129,12 +512,13 @@ const ProfilePage = () => {
   };
 
   const downloadRecoveryCodes = () => {
-    const codesText = `USH Account Recovery Codes\n\nUsername: ${user.username}\nGenerated: ${new Date().toLocaleString()}\n\n${recoveryCodes.join('\n')}\n\nIMPORTANT:\n- Save these codes in a safe place\n- Each code can only be used once\n- Use these if you lose access to your authenticator app`;
+    const username = user?.username || 'user';
+    const codesText = `USH Account Recovery Codes\n\nUsername: ${username}\nGenerated: ${new Date().toLocaleString()}\n\n${recoveryCodes.join('\n')}\n\nIMPORTANT:\n- Save these codes in a safe place\n- Each code can only be used once\n- Use these if you lose access to your authenticator app`;
     const blob = new Blob([codesText], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `ush-recovery-codes-${user.username}.txt`;
+    link.download = `ush-recovery-codes-${username}.txt`;
     link.click();
     URL.revokeObjectURL(url);
   };
@@ -146,7 +530,12 @@ const ProfilePage = () => {
     await load2FAQrCode();
   };
 
-  const handleDisable2FA = async () => {
+  const handleDisable2FA = () => {
+    setShowDisable2FAConfirm(true);
+  };
+
+  const confirmDisable2FA = async () => {
+    setShowDisable2FAConfirm(false);
     setError('');
     setSuccess('');
     setDisable2FALoading(true);
@@ -156,7 +545,7 @@ const ProfilePage = () => {
       if (result.success) {
         setSuccess('2FA has been successfully disabled');
         setIs2FAEnabled(false);
-        
+
         // Refresh user data
         const token = localStorage.getItem('token');
         const userResponse = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/auth/me`, {
@@ -165,7 +554,8 @@ const ProfilePage = () => {
           }
         });
         if (userResponse.ok) {
-          const userData = await userResponse.json();
+          const data = await userResponse.json();
+          const userData = data.user;
           localStorage.setItem('user', JSON.stringify(userData));
         }
 
@@ -214,7 +604,7 @@ const ProfilePage = () => {
 
       // Update user profile with wallet address
       const response = await axios.put(
-        `${import.meta.env.VITE_API_BASE_URL}/api/users/${user.id}`,
+        `${import.meta.env.VITE_API_BASE_URL}/api/auth/profile`,
         { wallet_address: walletAddress },
         {
           headers: {
@@ -225,7 +615,7 @@ const ProfilePage = () => {
       );
 
       setSuccess(`Wallet linked successfully! ${walletAddress.substring(0, 6)}...${walletAddress.substring(walletAddress.length - 4)}`);
-      
+
       // Update localStorage
       localStorage.setItem('user', JSON.stringify(response.data));
 
@@ -240,16 +630,16 @@ const ProfilePage = () => {
         const errorMsg = err.response?.data?.error || err.message || 'Failed to link wallet';
         setError(errorMsg);
       }
-    } finally {
       setLinkWalletLoading(false);
     }
   };
 
-  const handleUnlinkWeb3Wallet = async () => {
-    if (!window.confirm('Are you sure you want to unlink your wallet?')) {
-      return;
-    }
+  const handleUnlinkWeb3Wallet = () => {
+    setShowUnlinkWalletConfirm(true);
+  };
 
+  const confirmUnlinkWeb3Wallet = async () => {
+    setShowUnlinkWalletConfirm(false);
     setError('');
     setSuccess('');
     setLinkWalletLoading(true);
@@ -259,7 +649,7 @@ const ProfilePage = () => {
 
       // Remove wallet address
       const response = await axios.put(
-        `${import.meta.env.VITE_API_BASE_URL}/api/users/${user.id}`,
+        `${import.meta.env.VITE_API_BASE_URL}/api/auth/profile`,
         { wallet_address: null },
         {
           headers: {
@@ -270,7 +660,7 @@ const ProfilePage = () => {
       );
 
       setSuccess('Wallet unlinked successfully!');
-      
+
       // Update localStorage
       localStorage.setItem('user', JSON.stringify(response.data));
 
@@ -286,168 +676,56 @@ const ProfilePage = () => {
     }
   };
 
-  const handleUpdateProfile = async (e) => {
-    e.preventDefault();
-    setError('');
-    setSuccess('');
-    setLoading(true);
-
-    try {
-      const token = localStorage.getItem('token');
-      const updateData = {};
-
-      // Only add fields that have changed
-      if (username && username !== user.username) {
-        updateData.username = username;
-      }
-      if (email && email !== user.email) {
-        updateData.email = email;
-      }
-
-      if (Object.keys(updateData).length === 0 && !newPassword) {
-        setError('No changes made');
-        setLoading(false);
-        return;
-      }
-
-      // If updating password, use dedicated password change endpoint
-      if (newPassword) {
-        if (!currentPassword) {
-          setError('Current password is required to change password');
-          setLoading(false);
-          return;
-        }
-        if (newPassword !== confirmPassword) {
-          setError('Passwords do not match');
-          setLoading(false);
-          return;
-        }
-        if (newPassword.length < 8) {
-          setError('Password must be at least 8 characters');
-          setLoading(false);
-          return;
-        }
-        if (!/[A-Z]/.test(newPassword) || !/[a-z]/.test(newPassword) || !/[0-9]/.test(newPassword)) {
-          setError('Password must contain uppercase, lowercase, and number');
-          setLoading(false);
-          return;
-        }
-
-        // Call dedicated password change endpoint
-        try {
-          await axios.post(
-            `${import.meta.env.VITE_API_BASE_URL}/api/auth/password/change`,
-            {
-              current_password: currentPassword,
-              new_password: newPassword
-            },
-            {
-              headers: {
-                Authorization: `Bearer ${token}`,
-                'Content-Type': 'application/json',
-              },
-            }
-          );
-        } catch (passwordErr) {
-          console.error('Password change error:', passwordErr);
-          const errorMsg = passwordErr.response?.data?.error || passwordErr.message || 'Failed to change password';
-          setError(errorMsg);
-          setLoading(false);
-          return;
-        }
-      }
-
-      // If there are other updates, do them
-      if (Object.keys(updateData).length > 0) {
-        const response = await axios.put(
-          `${import.meta.env.VITE_API_BASE_URL}/api/users/${user.id}`,
-          updateData,
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-              'Content-Type': 'application/json',
-            },
-          }
-        );
-        
-        // Update localStorage with new user data
-        localStorage.setItem('user', JSON.stringify(response.data));
-      }
-
-      setSuccess('Profile updated successfully!');
-      
-      // Clear password fields
-      setCurrentPassword('');
-      setNewPassword('');
-      setConfirmPassword('');
-
-      // Refresh page after 1 second to show updated info
-      setTimeout(() => {
-        window.location.reload();
-      }, 1000);
-    } catch (err) {
-      console.error('Profile update error:', err);
-      const errorMsg = err.response?.data?.error || err.message || 'Failed to update profile';
-      setError(errorMsg);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSendVerificationEmail = async () => {
-    setError('');
-    setSuccess('');
-    setVerifyEmailLoading(true);
-
-    try {
-      const response = await axios.post(
-        `${import.meta.env.VITE_API_BASE_URL}/api/auth/email/send-verification`,
-        { email: user.email }
-      );
-
-      setSuccess('Verification email sent! Check your inbox.');
-      
-      // Navigate to OTP verify page
-      setTimeout(() => {
-        navigate('/verify-otp', {
-          state: {
-            email: user.email,
-            isFromProfilePage: true
-          }
-        });
-      }, 2000);
-    } catch (err) {
-      console.error('Send verification error:', err);
-      const errorMsg = err.response?.data?.error || err.message || 'Failed to send verification email';
-      setError(errorMsg);
-    } finally {
-      setVerifyEmailLoading(false);
-    }
-  };
-
   return (
     <div className="min-h-screen bg-white pt-24 pb-8">
+      {/* Toast Notifications - Fixed at top */}
+      {error && (
+        <div
+          className="fixed top-4 left-1/2 transform -translate-x-1/2 z-50 max-w-md w-full mx-4 border-2 border-red-600 bg-red-50 text-red-700 p-4 font-bold shadow-lg transition-all duration-300 ease-in-out"
+          style={{
+            animation: 'slideDown 0.3s ease-out'
+          }}
+        >
+          <div className="flex items-center justify-between">
+            <span>{error}</span>
+            <button
+              onClick={() => setError('')}
+              className="ml-4 text-red-700 hover:text-red-900 font-bold"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
+
+      {success && (
+        <div
+          className="fixed top-4 left-1/2 transform -translate-x-1/2 z-50 max-w-md w-full mx-4 border-2 border-green-600 bg-green-50 text-green-700 p-4 font-bold shadow-lg transition-all duration-300 ease-in-out"
+          style={{
+            animation: 'slideDown 0.3s ease-out'
+          }}
+        >
+          <div className="flex items-center justify-between">
+            <span>{success}</span>
+            <button
+              onClick={() => setSuccess('')}
+              className="ml-4 text-green-700 hover:text-green-900 font-bold"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="container mx-auto px-4">
         <div className="max-w-2xl mx-auto">
           <h1 className="text-3xl font-bold text-black mb-8">Profile Settings</h1>
 
-          {error && (
-            <div className="border-2 border-red-600 bg-red-50 text-red-700 p-4 mb-6 font-bold">
-              {error}
-            </div>
-          )}
-
-          {success && (
-            <div className="border-2 border-green-600 bg-green-50 text-green-700 p-4 mb-6 font-bold">
-              {success}
-            </div>
-          )}
-
-          <form onSubmit={handleUpdateProfile} className="space-y-6">
+          <form className="space-y-6">
             {/* User Info Section */}
             <div className="border border-black p-6">
               <h2 className="text-xl font-bold text-black mb-4">User Information</h2>
-              
+
               <div className="space-y-4">
                 <div>
                   <label className="block text-black font-bold mb-2">Username</label>
@@ -571,62 +849,208 @@ const ProfilePage = () => {
                   </div>
                 </div>
               </div>
+
+              {/* Update Profile Button */}
+              <div className="mt-6">
+                <button
+                  type="button"
+                  onClick={handleUpdateProfile}
+                  disabled={loading || (!isEditingUsername && !isEditingEmail)}
+                  className="w-full px-6 py-3 border border-black bg-black text-white font-bold hover:bg-white hover:text-black transition disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-black disabled:hover:text-white"
+                >
+                  {loading ? 'Updating...' : 'Update Profile'}
+                </button>
+              </div>
             </div>
 
             {/* Password Change Section */}
             <div className="border border-black p-6">
               <h2 className="text-xl font-bold text-black mb-4">Change Password</h2>
-              <p className="text-black text-sm mb-4">Leave blank if you don't want to change your password</p>
-              
-              <div className="space-y-4">
+
+              {passwordChangeStep === 0 && (
                 <div>
-                  <label className="block text-black font-bold mb-2">Current Password</label>
-                  <div className="relative">
-                    <input
-                      type={showPassword ? 'text' : 'password'}
-                      value={currentPassword}
-                      onChange={(e) => setCurrentPassword(e.target.value)}
-                      className="w-full border border-black p-2 pr-12 bg-white text-black"
-                      placeholder="Enter current password"
-                    />
+                  <p className="text-black text-sm mb-4">Secure your account by updating your password regularly.</p>
+                  <button
+                    type="button"
+                    onClick={() => setPasswordChangeStep(1)}
+                    className="px-4 py-2 border border-black bg-white text-black font-bold hover:bg-black hover:text-white transition"
+                  >
+                    Start Password Change
+                  </button>
+                </div>
+              )}
+
+              {passwordChangeStep === 1 && (
+                <div className="space-y-4">
+                  <div className="flex justify-between items-center mb-2">
+                    <h3 className="font-bold text-lg">Step 1: Verification</h3>
+                    <span className="text-xs font-bold bg-gray-200 px-2 py-1 rounded">1/2</span>
+                  </div>
+
+                  {/* Verification Method Selection */}
+                  <div>
+                    <label className="block text-black font-bold mb-2">Verification Method</label>
+                    <div className="flex gap-4">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="verificationMethod"
+                          value="email"
+                          checked={verificationMethod === 'email'}
+                          onChange={() => {
+                            setVerificationMethod('email');
+                            setShowVerificationInput(false);
+                          }}
+                          className="accent-black"
+                        />
+                        <span className="text-black">Email OTP</span>
+                      </label>
+                      {is2FAEnabled && (
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="radio"
+                            name="verificationMethod"
+                            value="totp"
+                            checked={verificationMethod === 'totp'}
+                            onChange={() => {
+                              setVerificationMethod('totp');
+                              setShowVerificationInput(true);
+                            }}
+                            className="accent-black"
+                          />
+                          <span className="text-black">Authenticator App (2FA)</span>
+                        </label>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Verification Code Input */}
+                  <div>
+                    <label className="block text-black font-bold mb-2">
+                      {verificationMethod === 'totp' ? '2FA Code' : 'Email Verification Code'}
+                    </label>
+                    <div className="flex gap-2">
+                      {verificationMethod === 'email' && !showVerificationInput && (
+                        <button
+                          type="button"
+                          onClick={handleSendVerificationCode}
+                          disabled={sendingCode}
+                          className="bg-black text-white font-bold py-2 px-4 hover:bg-gray-800 transition disabled:opacity-50"
+                        >
+                          {sendingCode ? 'Sending...' : 'Send Code'}
+                        </button>
+                      )}
+                      {(showVerificationInput || verificationMethod === 'totp') && (
+                        <div className="flex-1 flex gap-2">
+                          <input
+                            type="text"
+                            value={verificationCode}
+                            onChange={(e) => setVerificationCode(e.target.value)}
+                            className="flex-1 border border-black p-2 bg-white text-black"
+                            placeholder={verificationMethod === 'totp' ? "Enter 6-digit code" : "Enter email code"}
+                          />
+                          {verificationMethod === 'email' && (
+                            <button
+                              type="button"
+                              onClick={handleSendVerificationCode}
+                              disabled={sendingCode || countdown > 0}
+                              className="bg-white text-black border border-black font-bold py-2 px-4 hover:bg-gray-100 transition disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap min-w-[120px]"
+                            >
+                              {countdown > 0 ? `Resend (${countdown}s)` : (sendingCode ? 'Sending...' : 'Resend Code')}
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    {verificationMethod === 'email' && showVerificationInput && (
+                      <p className="text-xs text-gray-500 mt-1">Code sent to {user.email}</p>
+                    )}
+                  </div>
+
+                  <div className="flex gap-2 mt-6">
                     <button
                       type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-2 top-1/2 transform -translate-y-1/2 px-2 py-1 text-black font-bold text-xs border border-black hover:bg-black hover:text-white"
+                      onClick={() => setPasswordChangeStep(0)}
+                      className="px-4 py-2 border border-black bg-white text-black font-bold hover:bg-gray-100 transition"
                     >
-                      {showPassword ? 'Hide' : 'Show'}
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleNextStep}
+                      disabled={!verificationCode || loading}
+                      className="px-4 py-2 border border-black bg-black text-white font-bold hover:bg-gray-800 transition disabled:opacity-50"
+                    >
+                      {loading ? 'Verifying...' : 'Next'}
                     </button>
                   </div>
                 </div>
+              )}
 
-                <div>
-                  <label className="block text-black font-bold mb-2">New Password</label>
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    className="w-full border border-black p-2 bg-white text-black"
-                    placeholder="Enter new password (min 8 chars, 1 uppercase, 1 lowercase, 1 number)"
-                  />
-                </div>
+              {passwordChangeStep === 2 && (
+                <div className="space-y-4">
+                  <div className="flex justify-between items-center mb-2">
+                    <h3 className="font-bold text-lg">Step 2: New Password</h3>
+                    <span className="text-xs font-bold bg-gray-200 px-2 py-1 rounded">2/2</span>
+                  </div>
 
-                <div>
-                  <label className="block text-black font-bold mb-2">Confirm New Password</label>
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    className="w-full border border-black p-2 bg-white text-black"
-                    placeholder="Confirm new password"
-                  />
+                  <div>
+                    <label className="block text-black font-bold mb-2">New Password</label>
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      className="w-full border border-black p-2 bg-white text-black"
+                      placeholder="Enter new password (min 8 chars, 1 uppercase, 1 lowercase, 1 number)"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-black font-bold mb-2">Confirm New Password</label>
+                    <div className="relative">
+                      <input
+                        type={showPassword ? 'text' : 'password'}
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        className="w-full border border-black p-2 pr-12 bg-white text-black"
+                        placeholder="Confirm new password"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-2 top-1/2 transform -translate-y-1/2 px-2 py-1 text-black font-bold text-xs border border-black hover:bg-black hover:text-white"
+                      >
+                        {showPassword ? 'Hide' : 'Show'}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-2 mt-6">
+                    <button
+                      type="button"
+                      onClick={() => setPasswordChangeStep(1)}
+                      className="px-4 py-2 border border-black bg-white text-black font-bold hover:bg-gray-100 transition"
+                    >
+                      Back
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleUpdatePassword}
+                      disabled={loading || !newPassword || !confirmPassword}
+                      className="px-4 py-2 border border-black bg-black text-white font-bold hover:bg-gray-800 transition disabled:opacity-50"
+                    >
+                      {loading ? 'Updating...' : 'Update Password'}
+                    </button>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
+
 
             {/* Web3 Wallet Section */}
             <div className="border border-black p-6">
               <h2 className="text-xl font-bold text-black mb-4">Web3 Wallet</h2>
-              
+
               {user.wallet_address ? (
                 <div className="space-y-4">
                   <div>
@@ -860,7 +1284,7 @@ const ProfilePage = () => {
             {/* Account Info Section */}
             <div className="border border-black p-6">
               <h2 className="text-xl font-bold text-black mb-4">Account Information</h2>
-              
+
               <div className="space-y-3 text-black">
                 <div className="flex justify-between">
                   <span className="font-bold">Created:</span>
@@ -872,28 +1296,157 @@ const ProfilePage = () => {
                 </div>
               </div>
             </div>
+          </form >
+        </div >
+      </div >
 
-            {/* Submit Button */}
-            <div className="flex gap-4 justify-end">
-              <button
-                type="button"
-                onClick={() => navigate('/')}
-                className="px-6 py-2 border border-black bg-white text-black font-bold hover:bg-black hover:text-white transition"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={loading}
-                className="px-6 py-2 border border-black bg-black text-white font-bold hover:bg-white hover:text-black transition disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {loading ? 'Updating...' : 'Update Profile'}
-              </button>
+      {/* Password Confirmation Modal */}
+      {
+        showPasswordConfirm && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white p-6 border-2 border-black max-w-md w-full mx-4 shadow-lg">
+              <h3 className="text-xl font-bold text-black mb-4">Confirm Changes</h3>
+              <p className="text-black mb-4">
+                Please enter your current password to confirm these changes.
+              </p>
+              <input
+                type="password"
+                value={passwordConfirmValue}
+                onChange={(e) => setPasswordConfirmValue(e.target.value)}
+                placeholder="Current Password"
+                className="w-full border border-black p-2 mb-4"
+                autoFocus
+              />
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => {
+                    setShowPasswordConfirm(false);
+                    setPasswordConfirmValue('');
+                    setPendingUpdateData(null);
+                    setLoading(false);
+                  }}
+                  className="px-4 py-2 border border-black bg-white text-black font-bold hover:bg-gray-100 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleConfirmPasswordUpdate}
+                  disabled={!passwordConfirmValue || loading}
+                  className="px-4 py-2 border border-black bg-black text-white font-bold hover:bg-white hover:text-black transition disabled:opacity-50"
+                >
+                  {loading ? 'Confirming...' : 'Confirm'}
+                </button>
+              </div>
             </div>
-          </form>
-        </div>
-      </div>
-    </div>
+          </div>
+        )
+      }
+
+      {/* 2FA Confirmation Modal */}
+      {
+        show2FAConfirm && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white p-6 border-2 border-black max-w-md w-full mx-4 shadow-lg">
+              <h3 className="text-xl font-bold text-black mb-4">2FA Verification</h3>
+              <p className="text-black mb-4">
+                Please enter the code from your authenticator app to confirm these changes.
+              </p>
+              {error && (
+                <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-2 rounded relative mb-4" role="alert">
+                  <span className="block sm:inline">{error}</span>
+                </div>
+              )}
+              <input
+                type="text"
+                value={twoFACode}
+                onChange={(e) => setTwoFACode(e.target.value)}
+                placeholder="Enter 6-digit code"
+                className="w-full border border-black p-2 mb-4"
+                autoFocus
+                maxLength={6}
+              />
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => {
+                    setShow2FAConfirm(false);
+                    setTwoFACode('');
+                    setPendingUpdateData(null);
+                    setLoading(false);
+                    setError('');
+                  }}
+                  className="px-4 py-2 border border-black bg-white text-black font-bold hover:bg-gray-100 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleConfirmUpdateWith2FA}
+                  disabled={!twoFACode || loading}
+                  className="px-4 py-2 border border-black bg-black text-white font-bold hover:bg-white hover:text-black transition disabled:opacity-50"
+                >
+                  {loading ? 'Verifying...' : 'Confirm'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      }
+
+      {/* Unlink Wallet Confirmation Modal */}
+      {
+        showUnlinkWalletConfirm && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white p-6 border-2 border-black max-w-md w-full mx-4 shadow-lg">
+              <h3 className="text-xl font-bold text-black mb-4">Unlink Wallet?</h3>
+              <p className="text-black mb-6">
+                Are you sure you want to unlink your Web3 wallet? You won't be able to use wallet features until you link it again.
+              </p>
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => setShowUnlinkWalletConfirm(false)}
+                  className="px-4 py-2 border border-black bg-white text-black font-bold hover:bg-gray-100 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmUnlinkWeb3Wallet}
+                  className="px-4 py-2 border border-black bg-red-600 text-white font-bold hover:bg-red-700 transition"
+                >
+                  Unlink
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      }
+
+      {/* Disable 2FA Confirmation Modal */}
+      {
+        showDisable2FAConfirm && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white p-6 border-2 border-black max-w-md w-full mx-4 shadow-lg">
+              <h3 className="text-xl font-bold text-black mb-4">Disable 2FA?</h3>
+              <p className="text-black mb-6">
+                Are you sure you want to disable Two-Factor Authentication? This will significantly reduce your account security.
+              </p>
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => setShowDisable2FAConfirm(false)}
+                  className="px-4 py-2 border border-black bg-white text-black font-bold hover:bg-gray-100 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmDisable2FA}
+                  className="px-4 py-2 border border-black bg-red-600 text-white font-bold hover:bg-red-700 transition"
+                >
+                  Disable 2FA
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      }
+    </div >
   );
 };
 

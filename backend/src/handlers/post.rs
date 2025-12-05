@@ -194,22 +194,73 @@ pub async fn delete_post(
 
     let post_id = path.into_inner();
 
-    let result = sqlx::query!(
-        "DELETE FROM posts WHERE id = $1 AND user_id = $2",
-        post_id,
-        current_user.sub
-    )
-    .execute(pool.get_ref())
-    .await
-    .map_err(|_| actix_web::error::ErrorInternalServerError("Database error"))?;
+    // First check if post exists and user is authorized
+    let post_exists = if current_user.role == "admin" {
+        sqlx::query_scalar::<_, i32>("SELECT id FROM posts WHERE id = $1")
+            .bind(post_id)
+            .fetch_optional(pool.get_ref())
+            .await
+    } else {
+        sqlx::query_scalar::<_, i32>("SELECT id FROM posts WHERE id = $1 AND user_id = $2")
+            .bind(post_id)
+            .bind(current_user.sub)
+            .fetch_optional(pool.get_ref())
+            .await
+    };
 
-    if result.rows_affected() == 0 {
-        return Ok(HttpResponse::NotFound().json(serde_json::json!({
-            "error": "Post not found"
-        })));
+    match post_exists {
+        Ok(Some(_)) => {
+            // Start transaction
+            let mut tx = pool.begin().await.map_err(|e| {
+                eprintln!("DELETE POST: Failed to start transaction: {:?}", e);
+                actix_web::error::ErrorInternalServerError("Database error")
+            })?;
+
+            // Delete comments first
+            if let Err(e) = sqlx::query!("DELETE FROM comments WHERE post_id = $1", post_id)
+                .execute(&mut *tx)
+                .await 
+            {
+                eprintln!("DELETE POST: Failed to delete comments: {:?}", e);
+                return Err(actix_web::error::ErrorInternalServerError("Database error"));
+            }
+
+            // Delete likes
+            if let Err(e) = sqlx::query!("DELETE FROM likes WHERE post_id = $1", post_id)
+                .execute(&mut *tx)
+                .await
+            {
+                eprintln!("DELETE POST: Failed to delete likes: {:?}", e);
+                return Err(actix_web::error::ErrorInternalServerError("Database error"));
+            }
+
+            // Delete post
+            if let Err(e) = sqlx::query!("DELETE FROM posts WHERE id = $1", post_id)
+                .execute(&mut *tx)
+                .await
+            {
+                 eprintln!("DELETE POST: Failed to delete post: {:?}", e);
+                 return Err(actix_web::error::ErrorInternalServerError("Database error"));
+            }
+
+            // Commit transaction
+            if let Err(e) = tx.commit().await {
+                eprintln!("DELETE POST: Failed to commit transaction: {:?}", e);
+                return Err(actix_web::error::ErrorInternalServerError("Database error"));
+            }
+            
+            Ok(HttpResponse::Ok().json(serde_json::json!({
+                "message": "Post deleted successfully"
+            })))
+        },
+        Ok(None) => {
+            Ok(HttpResponse::NotFound().json(serde_json::json!({
+                "error": "Post not found or not authorized"
+            })))
+        },
+        Err(e) => {
+            eprintln!("DELETE POST: Database error checking post: {:?}", e);
+            Err(actix_web::error::ErrorInternalServerError("Database error"))
+        }
     }
-
-    Ok(HttpResponse::Ok().json(serde_json::json!({
-        "message": "Post deleted successfully"
-    })))
 }

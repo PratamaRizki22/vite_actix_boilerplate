@@ -128,6 +128,7 @@ pub struct CheckExpiryRequest {
 pub struct CheckExpiryResponse {
     pub has_code: bool,
     pub expires_in_seconds: Option<i64>,
+    pub expires_at: Option<String>, // ISO 8601 timestamp
     pub message: String,
 }
 
@@ -143,12 +144,14 @@ pub async fn check_code_expiry(
         Ok(HttpResponse::Ok().json(CheckExpiryResponse {
             has_code: true,
             expires_in_seconds: Some(remaining_seconds),
+            expires_at: Some(expires_at.to_rfc3339()),
             message: "Code found".to_string(),
         }))
     } else {
         Ok(HttpResponse::Ok().json(CheckExpiryResponse {
             has_code: false,
             expires_in_seconds: None,
+            expires_at: None,
             message: "No active code found for this email".to_string(),
         }))
     }
@@ -242,7 +245,7 @@ pub async fn check_mfa_code_expiry(
     let code = EmailService::get_mfa_verification_code(mfa_claims.user_id);
     
     if code.is_some() {
-        // Code exists, calculate expiry (MFA codes expire in 5 minutes)
+        // Code exists, calculate expiry
         // We need to get the actual expiry time from the store
         let codes = crate::services::email_service::EmailService::get_all_mfa_codes_with_expiry();
         if let Some((_, expires_at)) = codes.get(&mfa_claims.user_id) {
@@ -251,12 +254,14 @@ pub async fn check_mfa_code_expiry(
             Ok(HttpResponse::Ok().json(CheckExpiryResponse {
                 has_code: true,
                 expires_in_seconds: Some(remaining_seconds),
+                expires_at: Some(expires_at.to_rfc3339()),
                 message: "MFA code found".to_string(),
             }))
         } else {
             Ok(HttpResponse::Ok().json(CheckExpiryResponse {
                 has_code: false,
                 expires_in_seconds: None,
+                expires_at: None,
                 message: "No active MFA code found".to_string(),
             }))
         }
@@ -264,6 +269,7 @@ pub async fn check_mfa_code_expiry(
         Ok(HttpResponse::Ok().json(CheckExpiryResponse {
             has_code: false,
             expires_in_seconds: None,
+            expires_at: None,
             message: "No active MFA code found".to_string(),
         }))
     }

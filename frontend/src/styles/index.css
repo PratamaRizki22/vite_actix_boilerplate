@@ -94,3 +94,15 @@ input::-webkit-clear-button {
   font-size: 0.875rem !important;
   display: block !important;
 }
+
+/* Notification animations */
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

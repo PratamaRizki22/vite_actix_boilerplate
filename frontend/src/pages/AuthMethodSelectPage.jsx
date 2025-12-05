@@ -20,6 +20,12 @@ const AuthMethodSelectPage = () => {
   console.log('AuthMethodSelectPage - location.state:', location.state);
   console.log('AuthMethodSelectPage - email:', email, 'temp_token:', temp_token, 'user:', user);
 
+  // Fallback: Get email from user object if not provided (for login flow)
+  if (!email && user?.email) {
+    email = user.email;
+    console.log('AuthMethodSelectPage - email extracted from user:', email);
+  }
+
   // Normalize email for consistency
   if (email) {
     email = email.toLowerCase().trim()
@@ -27,7 +33,40 @@ const AuthMethodSelectPage = () => {
 
   // For login flow (has temp_token or explicit isLogin flag)
   const isLogin = !!temp_token || explicitIsLogin || !!user;
-  
+
+  // Auto-redirect registration flow to email verification first, then 2FA setup (mandatory)
+  useEffect(() => {
+    const handleRegistrationFlow = async () => {
+      if (isRegistration && email) {
+        console.log('Registration flow: sending email verification first');
+
+        try {
+          // Send email verification code
+          await axios.post(
+            `${import.meta.env.VITE_API_BASE_URL}/api/auth/email/send-verification`,
+            { email }
+          );
+
+          // Redirect to OTP verify page with flag to go to 2FA setup after verification
+          navigate('/verify-otp', {
+            state: {
+              email,
+              credentials: { username, password },
+              isRegistration: true,
+              autoSent: true,
+              redirectTo2FA: true  // Flag to redirect to 2FA setup after email verification
+            }
+          });
+        } catch (err) {
+          console.error('Failed to send verification email:', err);
+          setError('Failed to send verification email. Please try again.');
+        }
+      }
+    };
+
+    handleRegistrationFlow();
+  }, [isRegistration, email, navigate, username, password]);
+
   // Cooldown timer untuk resend
   useEffect(() => {
     if (resendCooldown > 0) {
@@ -65,14 +104,14 @@ const AuthMethodSelectPage = () => {
 
     return () => clearInterval(syncInterval);
   }, [email, otpSent, isExpirySynced, codeExpiry]);
-  
+
   const checkCodeExpiry = async () => {
     try {
       const response = await axios.post(
         `${import.meta.env.VITE_API_BASE_URL}/api/auth/email/check-expiry`,
         { email }
       );
-      
+
       if (response.data.has_code && response.data.expires_in_seconds) {
         setCodeExpiry(response.data.expires_in_seconds);
         setIsExpirySynced(true);
@@ -88,11 +127,11 @@ const AuthMethodSelectPage = () => {
       setIsExpirySynced(true);
     }
   };
-  
+
   // For login flow, we need temp_token (email is in user object)
   // For registration flow, we need email
   const hasRequiredData = isLogin ? !!temp_token : !!email;
-  
+
   if (!hasRequiredData) {
     return (
       <div className="min-h-screen bg-white flex items-center justify-center p-4">
@@ -112,37 +151,66 @@ const AuthMethodSelectPage = () => {
     );
   }
 
-  const handleOTPVerification = () => {
+  const handleOTPVerification = async () => {
     setLoading(true);
     setError('');
-    
-    if (isLogin) {
-      // Login with OTP - go directly to OTP verify
-      navigate('/verify-otp', {
-        state: {
-          email: user?.email,
-          temp_token,
-          mfa_methods,
-          method: 'email',
-          isLogin: true
+
+    try {
+      if (isLogin) {
+        // Login with OTP - send MFA code first
+        // Extract email from user object
+        const userEmail = user?.email;
+
+        if (!userEmail) {
+          setError('User email not found. Please try logging in again.');
+          setLoading(false);
+          return;
         }
-      });
-    } else {
-      // Registration - go to OTP verify page, user will click "Send Code" to get OTP
-      navigate('/verify-otp', {
-        state: {
-          email,
-          credentials: { username, password },
-          isRegistration: true
-        }
-      });
+
+        await axios.post(
+          `${import.meta.env.VITE_API_BASE_URL}/api/auth/email/send-mfa-code`,
+          { temp_token }
+        );
+
+        // Then navigate to OTP verify with autoSent flag
+        navigate('/verify-otp', {
+          state: {
+            email: userEmail,
+            temp_token,
+            mfa_methods,
+            method: 'email',
+            isLogin: true,
+            autoSent: true  // Flag to indicate code was auto-sent
+          }
+        });
+      } else {
+        // Registration - send verification code first
+        await axios.post(
+          `${import.meta.env.VITE_API_BASE_URL}/api/auth/email/send-verification`,
+          { email }
+        );
+
+        // Then navigate to OTP verify with autoSent flag
+        navigate('/verify-otp', {
+          state: {
+            email,
+            credentials: { username, password },
+            isRegistration: true,
+            autoSent: true  // Flag to indicate code was auto-sent
+          }
+        });
+      }
+    } catch (err) {
+      console.error('Failed to send OTP:', err);
+      setError('Failed to send verification code. Please try again.');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const handleTwoFactorSetup = () => {
     setLoading(true);
-    
+
     if (isLogin) {
       // Login with 2FA
       navigate('/2fa-verify', {
@@ -174,8 +242,8 @@ const AuthMethodSelectPage = () => {
           {isLogin ? 'Verify Your Identity' : 'Verify Your Email'}
         </h1>
         <p className="text-gray-600 text-center mb-8">
-          {isLogin 
-            ? 'Choose how you want to verify your login' 
+          {isLogin
+            ? 'Choose how you want to verify your login'
             : 'Choose how you want to verify your email address'}
         </p>
 
@@ -194,25 +262,27 @@ const AuthMethodSelectPage = () => {
           >
             <div className="text-xl mb-2">Email OTP</div>
             <div className="text-sm font-normal text-left">
-              {isLogin 
+              {isLogin
                 ? 'Receive a one-time code via email to verify this login'
                 : 'Receive a one-time code via email. Quick and simple verification.'}
             </div>
           </button>
 
-          {/* 2FA Option */}
-          <button
-            onClick={handleTwoFactorSetup}
-            disabled={loading}
-            className="w-full border border-black p-6 bg-white text-black font-bold hover:bg-black hover:text-white transition disabled:opacity-50"
-          >
-            <div className="text-xl mb-2">Two-Factor Authentication</div>
-            <div className="text-sm font-normal text-left">
-              {isLogin
-                ? 'Use your authenticator app to verify this login'
-                : 'Setup authenticator app (Google Authenticator, Authy, etc.) for enhanced security.'}
-            </div>
-          </button>
+          {/* 2FA Option - Only show if user has TOTP enabled (for login) or for registration */}
+          {(!isLogin || (user?.two_factor_enabled)) && (
+            <button
+              onClick={handleTwoFactorSetup}
+              disabled={loading}
+              className="w-full border border-black p-6 bg-white text-black font-bold hover:bg-black hover:text-white transition disabled:opacity-50"
+            >
+              <div className="text-xl mb-2">Two-Factor Authentication</div>
+              <div className="text-sm font-normal text-left">
+                {isLogin
+                  ? 'Use your authenticator app to verify this login'
+                  : 'Setup authenticator app (Google Authenticator, Authy, etc.) for enhanced security.'}
+              </div>
+            </button>
+          )}
         </div>
 
         <div className="mt-8 text-center">

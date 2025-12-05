@@ -11,9 +11,9 @@ const TwoFactorSetupPage = () => {
   const [copied, setCopied] = useState(false)
   const navigate = useNavigate()
   const location = useLocation()
-  
+
   // Get state from location (for registration flow)
-  const { email, username, password, isRegistration, credentials } = location.state || {}
+  const { email, username, password, isRegistration, credentials, mandatory } = location.state || {}
 
   useEffect(() => {
     loadQrCode()
@@ -49,8 +49,15 @@ const TwoFactorSetupPage = () => {
         }
       })
     } else {
-      // For existing users, go to regular 2FA verify
-      navigate('/2fa-verify')
+      // For existing users or forced setup, go to regular 2FA verify
+      // Pass forceSetup flag so verify page knows to handle differently
+      navigate('/2fa-verify', {
+        state: {
+          isSetup: true,
+          forceSetup: location.state?.forceSetup,
+          user: location.state?.user
+        }
+      })
     }
   }
 
@@ -68,10 +75,14 @@ const TwoFactorSetupPage = () => {
     <div className="min-h-screen bg-white flex items-center justify-center p-4">
       <div className="w-full max-w-md border border-black p-8">
         <h1 className="text-3xl font-bold text-black mb-2 text-center">
-          Enable Two-Factor Authentication
+          {mandatory ? 'Setup Two-Factor Authentication' : 'Enable Two-Factor Authentication'}
         </h1>
         <p className="text-center text-black mb-8">
-          Secure your account with 2FA
+          {mandatory ? (
+            <span className="font-bold">2FA is required for all accounts. Please complete setup to continue.</span>
+          ) : (
+            'Secure your account with 2FA'
+          )}
         </p>
 
         {error && (
@@ -148,12 +159,14 @@ const TwoFactorSetupPage = () => {
               >
                 I've Scanned the Code
               </button>
-              <button
-                onClick={handleCancel}
-                className="w-full bg-white border border-black text-black font-bold py-2 px-4 hover:bg-black hover:text-white transition"
-              >
-                Back
-              </button>
+              {!mandatory && (
+                <button
+                  onClick={handleCancel}
+                  className="w-full bg-white border border-black text-black font-bold py-2 px-4 hover:bg-black hover:text-white transition"
+                >
+                  Back
+                </button>
+              )}
             </div>
           </>
         )}

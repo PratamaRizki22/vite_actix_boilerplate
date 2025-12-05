@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import postService from '../services/postService'
 import { useAuth } from '../context/AuthContext'
+import Modal from '../components/common/Modal'
 
 const PostsPage = () => {
   const [posts, setPosts] = useState([])
@@ -10,6 +11,11 @@ const PostsPage = () => {
   const [editingId, setEditingId] = useState(null)
   const [formTitle, setFormTitle] = useState('')
   const [formContent, setFormContent] = useState('')
+
+  // Delete Modal State
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
+  const [postToDelete, setPostToDelete] = useState(null)
+
   const { isAuthenticated, user } = useAuth()
 
   useEffect(() => {
@@ -60,15 +66,23 @@ const PostsPage = () => {
     setFormContent(post.content)
   }
 
-  const handleDelete = async (id) => {
-    if (!confirm('Are you sure you want to delete this post?')) return
+  const handleDeleteClick = (post) => {
+    setPostToDelete(post)
+    setIsDeleteModalOpen(true)
+  }
+
+  const confirmDelete = async () => {
+    if (!postToDelete) return
 
     try {
       setError('')
-      await postService.deletePost(id)
-      fetchPosts()
+      await postService.deletePost(postToDelete.id)
+      setPosts(prev => prev.filter(p => p.id !== postToDelete.id))
+      setIsDeleteModalOpen(false)
+      setPostToDelete(null)
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to delete post')
+      setIsDeleteModalOpen(false)
     }
   }
 
@@ -182,7 +196,7 @@ const PostsPage = () => {
                           Edit
                         </button>
                         <button
-                          onClick={() => handleDelete(post.id)}
+                          onClick={() => handleDeleteClick(post)}
                           className="bg-white border border-black text-black font-bold px-3 py-1 hover:bg-black hover:text-white transition text-sm"
                         >
                           Delete
@@ -195,6 +209,28 @@ const PostsPage = () => {
           </div>
         </div>
       </div>
+
+      {/* Delete Confirmation Modal */}
+      <Modal isOpen={isDeleteModalOpen} onClose={() => setIsDeleteModalOpen(false)}>
+        <div className="text-center">
+          <h3 className="text-xl font-bold text-black mb-4">Delete Post</h3>
+          <p className="text-black mb-6">Are you sure you want to delete this post? This action cannot be undone.</p>
+          <div className="flex gap-4 justify-center">
+            <button
+              onClick={() => setIsDeleteModalOpen(false)}
+              className="bg-white border border-black text-black font-bold py-2 px-6 hover:bg-gray-100 transition"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={confirmDelete}
+              className="bg-red-600 border border-red-600 text-white font-bold py-2 px-6 hover:bg-red-700 transition"
+            >
+              Delete
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
   )
 }

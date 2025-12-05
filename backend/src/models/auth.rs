@@ -110,7 +110,22 @@ pub struct PasswordResetResponse {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct VerifyCodeRequest {
+    pub verification_code: String,
+    pub verification_method: String, // "totp" or "email"
+}
+
+#[derive(Debug, Serialize)]
+pub struct VerifyCodeResponse {
+    pub success: bool,
+    pub temp_token: String,
+    pub message: String,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct ChangePasswordRequest {
-    pub current_password: String,
+    pub verification_code: Option<String>,
+    pub verification_method: Option<String>, // "totp" or "email"
+    pub temp_token: Option<String>,
     pub new_password: String,
 }

@@ -17,87 +17,97 @@ pub async fn toggle_like(
     let user_id = current_user.sub;
     let post_id = post_id_param.into_inner();
 
+    // Start transaction
+    let mut tx = match db.begin().await {
+        Ok(tx) => tx,
+        Err(_) => return HttpResponse::InternalServerError().json("Database error"),
+    };
+
     // Check if like exists
     let existing_like = sqlx::query_scalar::<_, i32>(
         "SELECT id FROM likes WHERE post_id = $1 AND user_id = $2"
     )
     .bind(post_id)
     .bind(user_id)
-    .fetch_optional(db.get_ref())
+    .fetch_optional(&mut *tx)
     .await;
 
     match existing_like {
         Ok(Some(_)) => {
             // Remove like
-            match sqlx::query(
-                "DELETE FROM likes WHERE post_id = $1 AND user_id = $2"
-            )
-            .bind(post_id)
-            .bind(user_id)
-            .execute(db.get_ref())
-            .await
+            if let Err(_) = sqlx::query("DELETE FROM likes WHERE post_id = $1 AND user_id = $2")
+                .bind(post_id)
+                .bind(user_id)
+                .execute(&mut *tx)
+                .await
             {
-                Ok(_) => {
-                    // Decrement likes_count
-                    let _ = sqlx::query("UPDATE posts SET likes_count = likes_count - 1 WHERE id = $1")
-                        .bind(post_id)
-                        .execute(db.get_ref())
-                        .await;
-                    
-                    // Get updated likes_count
-                    if let Ok(Some(likes_count)) = sqlx::query_scalar::<_, i32>(
-                        "SELECT likes_count FROM posts WHERE id = $1"
-                    )
-                    .bind(post_id)
-                    .fetch_optional(db.get_ref())
-                    .await
-                    {
-                        HttpResponse::Ok().json(serde_json::json!({ 
-                            "liked": false,
-                            "likes_count": likes_count
-                        }))
-                    } else {
-                        HttpResponse::Ok().json(serde_json::json!({ "liked": false }))
-                    }
-                }
-                Err(_) => HttpResponse::InternalServerError().json("Failed to unlike"),
+                return HttpResponse::InternalServerError().json("Failed to unlike");
             }
+
+            // Decrement likes_count
+            if let Err(_) = sqlx::query("UPDATE posts SET likes_count = GREATEST(likes_count - 1, 0) WHERE id = $1")
+                .bind(post_id)
+                .execute(&mut *tx)
+                .await
+            {
+                return HttpResponse::InternalServerError().json("Failed to update post");
+            }
+
+            // Commit transaction
+            if let Err(_) = tx.commit().await {
+                return HttpResponse::InternalServerError().json("Failed to commit transaction");
+            }
+
+            // Fetch updated count
+            let likes_count = sqlx::query_scalar::<_, i32>("SELECT likes_count FROM posts WHERE id = $1")
+                .bind(post_id)
+                .fetch_optional(db.get_ref())
+                .await
+                .unwrap_or(Some(0))
+                .unwrap_or(0);
+
+            HttpResponse::Ok().json(serde_json::json!({ 
+                "liked": false,
+                "likes_count": likes_count
+            }))
         }
         Ok(None) => {
             // Add like
-            match sqlx::query(
-                "INSERT INTO likes (post_id, user_id) VALUES ($1, $2)"
-            )
-            .bind(post_id)
-            .bind(user_id)
-            .execute(db.get_ref())
-            .await
+            if let Err(_) = sqlx::query("INSERT INTO likes (post_id, user_id) VALUES ($1, $2)")
+                .bind(post_id)
+                .bind(user_id)
+                .execute(&mut *tx)
+                .await
             {
-                Ok(_) => {
-                    // Increment likes_count
-                    let _ = sqlx::query("UPDATE posts SET likes_count = likes_count + 1 WHERE id = $1")
-                        .bind(post_id)
-                        .execute(db.get_ref())
-                        .await;
-                    
-                    // Get updated likes_count
-                    if let Ok(Some(likes_count)) = sqlx::query_scalar::<_, i32>(
-                        "SELECT likes_count FROM posts WHERE id = $1"
-                    )
-                    .bind(post_id)
-                    .fetch_optional(db.get_ref())
-                    .await
-                    {
-                        HttpResponse::Ok().json(serde_json::json!({ 
-                            "liked": true,
-                            "likes_count": likes_count
-                        }))
-                    } else {
-                        HttpResponse::Ok().json(serde_json::json!({ "liked": true }))
-                    }
-                }
-                Err(_) => HttpResponse::InternalServerError().json("Failed to like"),
+                return HttpResponse::InternalServerError().json("Failed to like");
             }
+
+            // Increment likes_count
+            if let Err(_) = sqlx::query("UPDATE posts SET likes_count = likes_count + 1 WHERE id = $1")
+                .bind(post_id)
+                .execute(&mut *tx)
+                .await
+            {
+                return HttpResponse::InternalServerError().json("Failed to update post");
+            }
+
+            // Commit transaction
+            if let Err(_) = tx.commit().await {
+                return HttpResponse::InternalServerError().json("Failed to commit transaction");
+            }
+
+            // Fetch updated count
+            let likes_count = sqlx::query_scalar::<_, i32>("SELECT likes_count FROM posts WHERE id = $1")
+                .bind(post_id)
+                .fetch_optional(db.get_ref())
+                .await
+                .unwrap_or(Some(0))
+                .unwrap_or(0);
+
+            HttpResponse::Ok().json(serde_json::json!({ 
+                "liked": true,
+                "likes_count": likes_count
+            }))
         }
         Err(_) => HttpResponse::InternalServerError().json("Database error"),
     }
@@ -337,7 +347,28 @@ pub async fn delete_comment(
             let owner_id: i32 = row.get("user_id");
             let post_id: i32 = row.get("post_id");
             
-            if owner_id == user_id {
+            let is_admin = current_user.role == "admin";
+            let is_comment_owner = owner_id == user_id;
+            
+            eprintln!("DELETE COMMENT: Request for comment_id={} from user_id={} role={}", comment_id, user_id, current_user.role);
+            eprintln!("DELETE COMMENT: Owner check: owner_id={} is_comment_owner={}", owner_id, is_comment_owner);
+
+            // Check if user is post owner (only if not admin or comment owner to save DB call)
+            let is_post_owner = if !is_admin && !is_comment_owner {
+                 let post_owner_check = sqlx::query_scalar::<_, i32>("SELECT user_id FROM posts WHERE id = $1")
+                    .bind(post_id)
+                    .fetch_optional(db.get_ref())
+                    .await
+                    .unwrap_or(None)
+                    .map(|id| id == user_id)
+                    .unwrap_or(false);
+                 eprintln!("DELETE COMMENT: Post owner check: post_id={} is_post_owner={}", post_id, post_owner_check);
+                 post_owner_check
+            } else {
+                false
+            };
+            
+            if is_admin || is_comment_owner || is_post_owner {
                 match sqlx::query("DELETE FROM comments WHERE id = $1")
                     .bind(comment_id)
                     .execute(db.get_ref())
@@ -349,11 +380,16 @@ pub async fn delete_comment(
                             .bind(post_id)
                             .execute(db.get_ref())
                             .await;
+                        eprintln!("DELETE COMMENT: Success");
                         HttpResponse::Ok().json(serde_json::json!({ "deleted": true }))
                     }
-                    Err(_) => HttpResponse::InternalServerError().json("Failed to delete comment"),
+                    Err(e) => {
+                        eprintln!("DELETE COMMENT: Database error: {:?}", e);
+                        HttpResponse::InternalServerError().json("Failed to delete comment")
+                    },
                 }
             } else {
+                eprintln!("DELETE COMMENT: Forbidden");
                 HttpResponse::Forbidden().json("Not authorized to delete this comment")
             }
         }

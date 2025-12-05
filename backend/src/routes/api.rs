@@ -63,6 +63,7 @@ pub fn config(cfg: &mut web::ServiceConfig) {
                     .route("/me", web::get().to(me).wrap(AuthMiddleware::new()))
                     .route("/password/request-reset", web::post().to(request_password_reset))
                     .route("/password/reset", web::post().to(reset_password))
+                    .route("/password/verify-code", web::post().to(crate::auth::password::verify_password_change_code).wrap(AuthMiddleware::new()))
                     .route("/password/change", web::post().to(change_password).wrap(AuthMiddleware::new()))
                     .route("/password/debug-tokens", web::get().to(debug_password_reset_tokens))
                     .route("/password/test-email", web::get().to(test_email_service))
@@ -75,7 +76,9 @@ pub fn config(cfg: &mut web::ServiceConfig) {
                     .route("/sessions", web::get().to(get_sessions).wrap(AuthMiddleware::new()))
                     .route("/sessions/{id}", web::delete().to(logout_session).wrap(AuthMiddleware::new()))
                     .route("/sessions/logout-all", web::post().to(logout_all_sessions).wrap(AuthMiddleware::new()))
-                    .route("/sessions/logout-others", web::post().to(logout_other_sessions).wrap(AuthMiddleware::new())),
+                    .route("/sessions/logout-others", web::post().to(logout_other_sessions).wrap(AuthMiddleware::new()))
+                    // Profile update endpoint (user can update their own profile)
+                    .route("/profile", web::put().to(crate::handlers::user_profile::update_own_profile).wrap(AuthMiddleware::new())),
             )
             // User search (authenticated users only - like Instagram search)
             .service(

@@ -85,9 +85,17 @@ const authService = {
     return response.data;
   },
 
+  // Get Web3 Challenge
+  getWeb3Challenge: async (address) => {
+    const response = await api.post('/auth/web3/challenge', {
+      address,
+    });
+    return response.data;
+  },
+
   // Verify Web3 Signature and Authenticate
   verifyWeb3Signature: async (address, challenge, signature) => {
-    const response = await api.post('/web3/verify', {
+    const response = await api.post('/auth/web3/verify', {
       address,
       challenge,
       signature,
@@ -145,6 +153,21 @@ const authService = {
 
   // Get stored token
   getToken: () => localStorage.getItem('token'),
+
+  // Request Password Reset
+  requestPasswordReset: async (email) => {
+    const response = await api.post('/auth/password/request-reset', { email });
+    return response.data;
+  },
+
+  // Reset Password
+  resetPassword: async (token, newPassword) => {
+    const response = await api.post('/auth/password/reset', {
+      token,
+      new_password: newPassword,
+    });
+    return response.data;
+  },
 };
 
 export default authService;

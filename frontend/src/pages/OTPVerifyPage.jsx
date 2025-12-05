@@ -13,6 +13,7 @@ const OTPVerifyPage = () => {
   const [codeExpiry, setCodeExpiry] = useState(null) // Start with null until we get backend value
   const [isExpirySynced, setIsExpirySynced] = useState(false) // Flag untuk indicate backend sync selesai
   const [hasCodeBeenSent, setHasCodeBeenSent] = useState(false) // Track if code has been sent at least once
+  const [lastCodeSentTime, setLastCodeSentTime] = useState(null) // Track when code was last sent
   const [email, setEmail] = useState('')
   const [pageLoading, setPageLoading] = useState(true) // Loading state untuk initial page setup
   const [credentials, setCredentials] = useState(null) // { username, password } untuk auto-login setelah register
@@ -27,7 +28,7 @@ const OTPVerifyPage = () => {
   const navigate = useNavigate()
   const location = useLocation()
   const { login } = useAuth()
-  
+
   // Get state to determine if from login or registration
   const isRegistration = location.state?.isRegistration || false
 
@@ -37,13 +38,14 @@ const OTPVerifyPage = () => {
     let credentialsFromState = location.state?.credentials
     let isRegistrationFromStorage = false
     let codeSentFromState = location.state?.codeSent // Flag if code was already sent
-    
+    let autoSentFromState = location.state?.autoSent // NEW: Flag if code was auto-sent from AuthMethodSelectPage
+
     // For login flow
     let tempTokenFromState = location.state?.temp_token
     let mfaMethodsFromState = location.state?.mfa_methods
     let userFromState = location.state?.user
     let canSkipMfaFromState = location.state?.can_skip_mfa
-    
+
     // If no state from location, try to get from sessionStorage (for page refresh)
     let storedData = null
     if (!emailFromState) {
@@ -59,15 +61,19 @@ const OTPVerifyPage = () => {
           if (storedData.user) userFromState = storedData.user
           if (storedData.canSkipMfa !== undefined) canSkipMfaFromState = storedData.canSkipMfa
           if (storedData.codeSent) codeSentFromState = storedData.codeSent
-          
-          // Restore codeExpiry if it's recent (within last 10 seconds)
-          if (storedData.codeExpiry && storedData.lastExpiryCheck) {
-            const timeSinceCheck = Date.now() - storedData.lastExpiryCheck
-            const adjustedExpiry = Math.max(0, storedData.codeExpiry - Math.floor(timeSinceCheck / 1000))
-            if (adjustedExpiry > 0 && timeSinceCheck < 10000) { // Within 10 seconds
-              setCodeExpiry(adjustedExpiry)
+          if (storedData.autoSent) autoSentFromState = storedData.autoSent
+
+          // Restore expires_at timestamp if available
+          if (storedData.expiresAt) {
+            const expiresAtTime = new Date(storedData.expiresAt).getTime()
+            const now = Date.now()
+            const remainingMs = expiresAtTime - now
+            const remainingSeconds = Math.max(0, Math.floor(remainingMs / 1000))
+
+            if (remainingSeconds > 0) {
+              setCodeExpiry(remainingSeconds)
               setIsExpirySynced(true)
-              console.log(`Restored code expiry from cache: ${adjustedExpiry} seconds`)
+              console.log(`Restored code expiry from timestamp: ${remainingSeconds} seconds remaining`)
             }
           }
         } catch (e) {
@@ -75,20 +81,20 @@ const OTPVerifyPage = () => {
         }
       }
     }
-    
+
     // Normalize email
     if (emailFromState) {
       emailFromState = emailFromState.toLowerCase().trim()
     }
-    
-    console.log('OTPVerifyPage mount - email:', emailFromState, 'credentials:', credentialsFromState)
-    
+
+    console.log('OTPVerifyPage mount - email:', emailFromState, 'autoSent:', autoSentFromState)
+
     if (!emailFromState) {
       console.log('No email found, redirecting to login')
       navigate('/login')
       return
     }
-    
+
     setEmail(emailFromState)
     if (credentialsFromState) {
       console.log('Setting credentials for auto-login:', credentialsFromState)
@@ -96,7 +102,7 @@ const OTPVerifyPage = () => {
       setUsername(credentialsFromState.username)
       setPassword(credentialsFromState.password)
     }
-    
+
     // Store login data
     if (tempTokenFromState) {
       setTempToken(tempTokenFromState)
@@ -104,29 +110,48 @@ const OTPVerifyPage = () => {
       setUser(userFromState)
       setCanSkipMfa(canSkipMfaFromState || false)
     }
-    
+
     // If code was already sent before navigation (e.g., from LoginPage for unverified email)
-    if (codeSentFromState) {
+    if (codeSentFromState || autoSentFromState) {
       console.log('Code was sent before navigation, marking as sent')
       setHasCodeBeenSent(true)
+      setLastCodeSentTime(Date.now()) // Track when code was sent
+
+      // If auto-sent, set default expiry time immediately to prevent "expired" message
+      if (autoSentFromState) {
+        // Determine if this is login flow (has tempToken) or registration flow
+        const isLoginFlow = tempTokenFromState ? true : false
+        const defaultExpiry = isLoginFlow ? 120 : 180 // 2 min for MFA, 3 min for registration
+        console.log(`Auto-sent detected, setting default expiry: ${defaultExpiry}s (${isLoginFlow ? 'MFA' : 'Registration'} flow)`)
+        setCodeExpiry(defaultExpiry)
+        setIsExpirySynced(true)
+
+        // Delay the expiry check to allow backend to process
+        setTimeout(() => {
+          checkCodeExpiry(emailFromState)
+        }, 2000) // Wait 2 seconds before checking actual expiry
+      }
     }
-    
+
     // Store state in sessionStorage for refresh persistence
     const stateToStore = {
       email: emailFromState,
       isRegistration: location.state?.isRegistration || storedData?.isRegistration || false,
-      codeSent: codeSentFromState || false,
+      codeSent: codeSentFromState || autoSentFromState || false,
+      autoSent: autoSentFromState || false,
       // Store login flow data if available (for persistence across refresh)
       tempToken: tempTokenFromState,
       mfaMethods: mfaMethodsFromState,
       user: userFromState,
       canSkipMfa: canSkipMfaFromState,
-      codeExpiry: null, // Will be updated when we get the expiry time
+      expiresAt: null, // Will be updated when we get the expiry time from backend
     }
     sessionStorage.setItem('otp_verify_state', JSON.stringify(stateToStore))
-    
-    // Check remaining time for existing verification code (don't auto-send)
-    checkCodeExpiry(emailFromState)
+
+    // Check remaining time for existing verification code (only if not auto-sent)
+    if (!autoSentFromState) {
+      checkCodeExpiry(emailFromState)
+    }
   }, [location, navigate])
 
   // Cooldown timer untuk resend
@@ -153,13 +178,40 @@ const OTPVerifyPage = () => {
   // Expire error handling
   useEffect(() => {
     // Only show expired error if a code was previously sent (hasCodeBeenSent) and now expired
+    // BUT don't show if code was just sent (within last 5 seconds) to avoid false positive
     if (codeExpiry === 0 && isExpirySynced && hasCodeBeenSent) {
-      setError('Verification code has expired. Please request a new one.')
-      setCode('')
-      // Clear stored state when code expires
-      sessionStorage.removeItem('otp_verify_state')
+      const now = Date.now()
+      const timeSinceLastSent = lastCodeSentTime ? now - lastCodeSentTime : Infinity
+
+      // Only show expired error if code was sent more than 5 seconds ago
+      if (timeSinceLastSent > 5000) {
+        setError('Verification code has expired. Please request a new one.')
+        setCode('')
+        // Clear stored state when code expires
+        sessionStorage.removeItem('otp_verify_state')
+      }
     }
-  }, [codeExpiry, isExpirySynced, hasCodeBeenSent])
+  }, [codeExpiry, isExpirySynced, hasCodeBeenSent, lastCodeSentTime])
+
+  // Auto-dismiss error messages after 5 seconds
+  useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => {
+        setError('')
+      }, 5000) // 5 seconds
+      return () => clearTimeout(timer)
+    }
+  }, [error])
+
+  // Auto-dismiss success messages after 5 seconds
+  useEffect(() => {
+    if (success) {
+      const timer = setTimeout(() => {
+        setSuccess('')
+      }, 5000) // 5 seconds
+      return () => clearTimeout(timer)
+    }
+  }, [success])
 
   // Periodic sync with backend every 30 seconds to keep timer accurate
   useEffect(() => {
@@ -243,18 +295,35 @@ const OTPVerifyPage = () => {
           setSuccess('Email verified successfully!')
           // Clear stored state
           sessionStorage.removeItem('otp_verify_state')
-          
-          // After email is verified, auto-login with credentials
-          if (credentials) {
+
+          // Check if should redirect to 2FA setup (mandatory 2FA flow)
+          const redirectTo2FA = location.state?.redirectTo2FA
+
+          if (redirectTo2FA && credentials) {
+            console.log('Email verified, redirecting to mandatory 2FA setup')
+            setTimeout(() => {
+              navigate('/2fa-setup', {
+                state: {
+                  email,
+                  username: credentials.username,
+                  password: credentials.password,
+                  isRegistration: true,
+                  mandatory: true
+                }
+              })
+            }, 500)
+          }
+          // After email is verified, auto-login with credentials (old flow)
+          else if (credentials) {
             console.log('Email verified, auto-login dengan credentials:', credentials.username)
             setTimeout(async () => {
               try {
                 const loginResult = await login(credentials.username, credentials.password)
                 console.log('Auto-login berhasil:', loginResult)
-                
+
                 // Dispatch event to notify AuthContext
                 window.dispatchEvent(new Event('auth-update'));
-                
+
                 // Navigate directly to dashboard (not home page which might redirect to login)
                 setTimeout(() => {
                   navigate('/dashboard');
@@ -300,35 +369,46 @@ const OTPVerifyPage = () => {
           { email: emailToCheck }
         )
       }
-      
+
       if (response.data.has_code && response.data.expires_in_seconds) {
         setCodeExpiry(response.data.expires_in_seconds)
         setHasCodeBeenSent(true) // Mark that a code exists
         console.log(`Code expires in ${response.data.expires_in_seconds} seconds`)
-        
-        // Update stored state with current expiry time
-        const stored = sessionStorage.getItem('otp_verify_state')
-        if (stored) {
-          try {
-            const storedData = JSON.parse(stored)
-            storedData.codeExpiry = response.data.expires_in_seconds
-            storedData.lastExpiryCheck = Date.now()
-            sessionStorage.setItem('otp_verify_state', JSON.stringify(storedData))
-          } catch (e) {
-            console.error('Failed to update stored expiry time:', e)
+
+        // Update stored state with absolute expiry timestamp from backend
+        if (response.data.expires_at) {
+          const stored = sessionStorage.getItem('otp_verify_state')
+          if (stored) {
+            try {
+              const storedData = JSON.parse(stored)
+              storedData.expiresAt = response.data.expires_at
+              sessionStorage.setItem('otp_verify_state', JSON.stringify(storedData))
+              console.log(`Stored expires_at timestamp: ${response.data.expires_at}`)
+            } catch (e) {
+              console.error('Failed to update stored expiry timestamp:', e)
+            }
           }
         }
         // Mark as synced with backend
         setIsExpirySynced(true)
       } else {
         console.log('No active code found')
-        setCodeExpiry(0) // No code exists yet
+        // Only set codeExpiry to 0 if we don't already have a valid default expiry
+        // This prevents race condition where auto-sent code hasn't been saved yet
+        setCodeExpiry(prev => {
+          if (prev && prev > 0) {
+            console.log(`Keeping existing expiry: ${prev}s (backend hasn't saved code yet)`)
+            return prev // Keep existing default expiry
+          }
+          return 0 // No code exists yet
+        })
         // Mark as synced so UI shows "Click Send Code" instead of "Loading..."
         setIsExpirySynced(true)
       }
     } catch (err) {
       console.error('Failed to check code expiry:', err)
-      setCodeExpiry(0) // No code on error
+      // Only set to 0 if we don't have a valid default expiry
+      setCodeExpiry(prev => prev && prev > 0 ? prev : 0)
       // Mark as synced so UI shows "Click Send Code" instead of "Loading..."
       setIsExpirySynced(true)
     } finally {
@@ -339,7 +419,7 @@ const OTPVerifyPage = () => {
   const sendOTPCode = async (emailToSend) => {
     try {
       console.log('Sending OTP code, tempToken:', tempToken ? 'present' : 'not present')
-      
+
       let response
       if (tempToken) {
         // Login flow - use send-mfa-code endpoint
@@ -356,13 +436,13 @@ const OTPVerifyPage = () => {
           { email: emailToSend }
         )
       }
-      
+
       console.log('OTP sent successfully')
       setHasCodeBeenSent(true) // Mark that code has been sent
       // Set resend cooldown from backend response
       const cooldownSeconds = response.data.resend_cooldown_seconds || 60
       setResendCooldown(cooldownSeconds)
-      
+
       // Get expiry time after sending
       try {
         let expiryResponse
@@ -379,23 +459,23 @@ const OTPVerifyPage = () => {
             { email: emailToSend }
           )
         }
-        
+
         if (expiryResponse.data.has_code && expiryResponse.data.expires_in_seconds) {
           setCodeExpiry(expiryResponse.data.expires_in_seconds);
         } else {
-          // Default: MFA codes expire in 5 minutes, verification codes in 3 minutes
-          setCodeExpiry(tempToken ? 300 : 180);
+          // Default: MFA codes expire in 2 minutes, verification codes in 3 minutes
+          setCodeExpiry(tempToken ? 120 : 180);
         }
         setIsExpirySynced(true)
       } catch (err) {
         console.error('Failed to get expiry time after sending:', err);
-        // Default: MFA codes expire in 5 minutes, verification codes in 3 minutes
-        setCodeExpiry(tempToken ? 300 : 180);
+        // Default: MFA codes expire in 2 minutes, verification codes in 3 minutes
+        setCodeExpiry(tempToken ? 120 : 180);
         setIsExpirySynced(true)
       }
     } catch (err) {
       console.error('Failed to send OTP:', err)
-      
+
       // Handle rate limit errors
       if (err.response?.status === 429) {
         const retryAfter = err.response.data.retry_after || 60
@@ -434,10 +514,11 @@ const OTPVerifyPage = () => {
 
       setSuccess('Verification code sent to your email!')
       setHasCodeBeenSent(true) // Mark that code has been sent
+      setLastCodeSentTime(Date.now()) // Track when code was sent
       // Set resend cooldown from backend response
       const cooldownSeconds = response.data.resend_cooldown_seconds || 60
       setResendCooldown(cooldownSeconds)
-      
+
       // Get fresh expiry time from backend
       try {
         let expiryResponse
@@ -454,25 +535,25 @@ const OTPVerifyPage = () => {
             { email }
           )
         }
-        
+
         if (expiryResponse.data.has_code && expiryResponse.data.expires_in_seconds) {
           setCodeExpiry(expiryResponse.data.expires_in_seconds);
         } else {
-          // Default: MFA codes expire in 5 minutes, verification codes in 3 minutes
-          setCodeExpiry(tempToken ? 300 : 180);
+          // Default: MFA codes expire in 2 minutes, verification codes in 3 minutes
+          setCodeExpiry(tempToken ? 120 : 180);
         }
         setIsExpirySynced(true)
       } catch (err) {
         console.error('Failed to get new expiry time:', err);
-        // Default: MFA codes expire in 5 minutes, verification codes in 3 minutes
-        setCodeExpiry(tempToken ? 300 : 180);
+        // Default: MFA codes expire in 2 minutes, verification codes in 3 minutes
+        setCodeExpiry(tempToken ? 120 : 180);
         setIsExpirySynced(true)
       }
-      
+
       setCode('')
     } catch (err) {
       console.error('Resend code error:', err.response?.data)
-      
+
       // Handle rate limit errors
       if (err.response?.status === 429) {
         const retryAfter = err.response.data.retry_after || 60
@@ -488,6 +569,48 @@ const OTPVerifyPage = () => {
 
   return (
     <div className="min-h-screen bg-white flex items-center justify-center p-4">
+      {/* Toast Notifications - Fixed at top */}
+      {error && (
+        <div
+          className={`fixed top-4 left-1/2 transform -translate-x-1/2 z-50 max-w-md w-full mx-4 border p-4 text-black shadow-lg transition-all duration-300 ease-in-out ${error.includes('expired')
+            ? 'border-red-500 bg-red-50 animate-pulse'
+            : 'border-black bg-white'
+            }`}
+          style={{
+            animation: 'slideDown 0.3s ease-out'
+          }}
+        >
+          <div className="flex items-center justify-between">
+            <span>{error}</span>
+            <button
+              onClick={() => setError('')}
+              className="ml-4 text-black hover:text-gray-600 font-bold"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
+
+      {success && (
+        <div
+          className="fixed top-4 left-1/2 transform -translate-x-1/2 z-50 max-w-md w-full mx-4 border border-green-500 bg-green-50 p-4 text-green-700 shadow-lg transition-all duration-300 ease-in-out"
+          style={{
+            animation: 'slideDown 0.3s ease-out'
+          }}
+        >
+          <div className="flex items-center justify-between">
+            <span>{success}</span>
+            <button
+              onClick={() => setSuccess('')}
+              className="ml-4 text-green-700 hover:text-green-900 font-bold"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="w-full max-w-md border border-black p-8">
         {pageLoading ? (
           // Loading state for initial page setup
@@ -499,8 +622,8 @@ const OTPVerifyPage = () => {
           <>
             <h1 className="text-3xl font-bold text-black mb-2 text-center">Verify Email</h1>
             <p className="text-center text-black mb-8">
-              {hasCodeBeenSent || (isExpirySynced && codeExpiry > 0) 
-                ? 'Enter the 6-digit verification code sent to' 
+              {hasCodeBeenSent || (isExpirySynced && codeExpiry > 0)
+                ? 'Enter the 6-digit verification code sent to'
                 : 'Click "Send Code" below to receive your verification code at'} <br />
               <span className="font-bold">{email}</span>
             </p>
@@ -522,87 +645,71 @@ const OTPVerifyPage = () => {
               </p>
             </div>
 
-        {error && (
-          <div className={`border p-4 mb-6 text-black ${
-            error.includes('expired') 
-              ? 'border-red-500 bg-red-50 animate-pulse' 
-              : 'border-black bg-white'
-          }`}>
-            {error}
-          </div>
-        )}
+            <form onSubmit={handleSubmit} className={`space-y-6 ${loading ? 'opacity-75 pointer-events-none' : ''}`}>
+              <div>
+                <label className="block text-black font-bold mb-2">Verification Code</label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={code}
+                  onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  maxLength="6"
+                  placeholder="000000"
+                  className="w-full border border-black p-3 bg-white text-black text-center text-2xl font-mono tracking-widest disabled:bg-gray-100 disabled:cursor-not-allowed transition"
+                  disabled={loading || !isExpirySynced || codeExpiry <= 0 || pageLoading}
+                />
+                <p className="text-sm text-black mt-2">{code.length}/6 digits</p>
+              </div>
 
-        {success && (
-          <div className="border border-green-500 bg-green-50 p-4 mb-6 text-green-700">
-            {success}
-          </div>
-        )}
+              <button
+                type="submit"
+                disabled={loading || code.length !== 6 || !isExpirySynced || codeExpiry <= 0}
+                className="w-full bg-black border border-black text-white font-bold py-2 px-4 hover:bg-white hover:text-black transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+              >
+                {loading && (
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                )}
+                {loading ? 'Verifying...' : 'Verify Code'}
+              </button>
+            </form>
 
-        <form onSubmit={handleSubmit} className={`space-y-6 ${loading ? 'opacity-75 pointer-events-none' : ''}`}>
-          <div>
-            <label className="block text-black font-bold mb-2">Verification Code</label>
-            <input
-              type="text"
-              inputMode="numeric"
-              value={code}
-              onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-              maxLength="6"
-              placeholder="000000"
-              className="w-full border border-black p-3 bg-white text-black text-center text-2xl font-mono tracking-widest disabled:bg-gray-100 disabled:cursor-not-allowed transition"
-              disabled={loading || !isExpirySynced || codeExpiry <= 0 || pageLoading}
-            />
-            <p className="text-sm text-black mt-2">{code.length}/6 digits</p>
-          </div>
+            <div className="mt-6 text-center">
+              {hasCodeBeenSent || (isExpirySynced && codeExpiry > 0) ? (
+                <p className="text-black mb-4">Didn't receive the code?</p>
+              ) : null}
+              <button
+                onClick={handleResendCode}
+                disabled={resendLoading || resendCooldown > 0}
+                className="text-black font-bold border-b border-black hover:bg-black hover:text-white px-2 py-1 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+              >
+                {resendLoading && (
+                  <div className="animate-spin rounded-full h-3 w-3 border-b border-black mr-1"></div>
+                )}
+                {resendCooldown > 0
+                  ? `Resend in ${resendCooldown}s`
+                  : resendLoading
+                    ? 'Sending...'
+                    : hasCodeBeenSent || (isExpirySynced && codeExpiry > 0)
+                      ? 'Resend Code'
+                      : 'Send Code'}
+              </button>
+            </div>
 
-          <button
-            type="submit"
-            disabled={loading || code.length !== 6 || !isExpirySynced || codeExpiry <= 0}
-            className="w-full bg-black border border-black text-white font-bold py-2 px-4 hover:bg-white hover:text-black transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
-          >
-            {loading && (
-              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-            )}
-            {loading ? 'Verifying...' : 'Verify Code'}
-          </button>
-        </form>
-
-        <div className="mt-6 text-center">
-          {hasCodeBeenSent || (isExpirySynced && codeExpiry > 0) ? (
-            <p className="text-black mb-4">Didn't receive the code?</p>
-          ) : null}
-          <button
-            onClick={handleResendCode}
-            disabled={resendLoading || resendCooldown > 0}
-            className="text-black font-bold border-b border-black hover:bg-black hover:text-white px-2 py-1 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
-          >
-            {resendLoading && (
-              <div className="animate-spin rounded-full h-3 w-3 border-b border-black mr-1"></div>
-            )}
-            {resendCooldown > 0
-              ? `Resend in ${resendCooldown}s`
-              : resendLoading
-              ? 'Sending...'
-              : hasCodeBeenSent || (isExpirySynced && codeExpiry > 0)
-              ? 'Resend Code'
-              : 'Send Code'}
-          </button>
-        </div>
-
-        <div className="mt-6 text-center">
-          <button
-            onClick={() => {
-              console.log('=== CANCEL BUTTON CLICKED ===');
-              // Clear stored state
-              sessionStorage.removeItem('otp_verify_state');
-              // Return to login/register page
-              navigate(isRegistration ? '/register' : '/login');
-            }}
-            disabled={pageLoading}
-            className="text-black font-bold border-b border-black hover:bg-black hover:text-white px-2 py-1 transition disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            Cancel
-          </button>
-        </div>
+            <div className="mt-6 text-center">
+              <button
+                onClick={() => {
+                  console.log('=== CANCEL BUTTON CLICKED ===');
+                  // Clear stored state
+                  sessionStorage.removeItem('otp_verify_state');
+                  // Return to login/register page
+                  navigate(isRegistration ? '/register' : '/login');
+                }}
+                disabled={pageLoading}
+                className="text-black font-bold border-b border-black hover:bg-black hover:text-white px-2 py-1 transition disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Cancel
+              </button>
+            </div>
           </>
         )}
       </div>

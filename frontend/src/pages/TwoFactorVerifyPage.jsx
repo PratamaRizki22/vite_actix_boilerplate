@@ -19,7 +19,7 @@ const TwoFactorVerifyPage = () => {
   const { setUser, login } = useAuth()
 
   // Get state from location
-  const { isSetup, isRegistration, credentials, email, temp_token, isLogin, user } = location.state || {}
+  const { isSetup, isRegistration, credentials, email, temp_token, isLogin, user, forceSetup } = location.state || {}
 
   // Check if user needs to setup 2FA first (ONLY for registration or profile setup, NOT login)
   useEffect(() => {
@@ -28,7 +28,7 @@ const TwoFactorVerifyPage = () => {
       if ((isRegistration || isSetup) && temp_token) {
         // Check if user has TOTP enabled
         const hasTotp = user?.totp_enabled || false
-        
+
         if (!hasTotp) {
           // User doesn't have 2FA setup, request QR code
           console.log('User needs to setup 2FA - requesting QR code')
@@ -42,7 +42,7 @@ const TwoFactorVerifyPage = () => {
                 code: '' // Empty code to trigger setup
               }
             )
-            
+
             if (response.data.setup_required) {
               setSetupRequired(true)
               setQrCode(response.data.qr_code_url)
@@ -57,7 +57,7 @@ const TwoFactorVerifyPage = () => {
       // For login, just show code input - no QR code request
       setCheckingSetup(false)
     }
-    
+
     checkTotpSetup()
   }, [isRegistration, isSetup, temp_token, user])
 
@@ -119,10 +119,10 @@ const TwoFactorVerifyPage = () => {
               try {
                 await login(credentials.username, credentials.password)
                 console.log('Auto-login berhasil')
-                
+
                 // Dispatch event to notify AuthContext
                 window.dispatchEvent(new Event('auth-update'))
-                
+
                 // Navigate to dashboard
                 setTimeout(() => {
                   navigate('/dashboard')
@@ -134,22 +134,51 @@ const TwoFactorVerifyPage = () => {
               }
             }, 500)
           }
-          // If this is setup from profile, refresh user data and go back to profile
+          // If this is setup from profile or forced setup, handle accordingly
           else if (isSetup) {
-            const token = localStorage.getItem('token')
-            const userResponse = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/auth/me`, {
-              headers: {
-                Authorization: `Bearer ${token}`
+            if (forceSetup && user) {
+              // Forced setup from login - need to login with stored user data
+              console.log('2FA setup complete (forced), logging in user:', user.username)
+
+              // Get fresh token by calling login endpoint with user credentials
+              // Since we don't have password, we need to use the backend's post-2FA-setup login
+              const token = localStorage.getItem('token')
+              if (token) {
+                // User already has token from initial login attempt, just refresh user data
+                const userResponse = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/auth/me`, {
+                  headers: {
+                    Authorization: `Bearer ${token}`
+                  }
+                })
+                if (userResponse.ok) {
+                  const data = await userResponse.json()
+                  const userData = data.user // Extract user object
+                  localStorage.setItem('user', JSON.stringify(userData))
+                  setUser(userData)
+                }
               }
-            })
-            if (userResponse.ok) {
-              const userData = await userResponse.json()
-              localStorage.setItem('user', JSON.stringify(userData))
-              setUser(userData)
+
+              // Dispatch auth event and navigate to dashboard
+              window.dispatchEvent(new Event('auth-update'))
+              navigate('/dashboard')
+            } else {
+              // Regular profile setup - refresh user data and go back to profile
+              const token = localStorage.getItem('token')
+              const userResponse = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/auth/me`, {
+                headers: {
+                  Authorization: `Bearer ${token}`
+                }
+              })
+              if (userResponse.ok) {
+                const data = await userResponse.json()
+                const userData = data.user // Extract user object
+                localStorage.setItem('user', JSON.stringify(userData))
+                setUser(userData)
+              }
+              // Dispatch auth event to notify ProfilePage
+              window.dispatchEvent(new Event('auth-update'))
+              navigate('/profile')
             }
-            // Dispatch auth event to notify ProfilePage
-            window.dispatchEvent(new Event('auth-update'))
-            navigate('/profile')
           } else {
             // Regular login flow - dispatch auth event and navigate to dashboard
             window.dispatchEvent(new Event('auth-update'))
@@ -186,7 +215,7 @@ const TwoFactorVerifyPage = () => {
           {setupRequired ? 'Setup Two-Factor Authentication' : 'Verify Authentication'}
         </h1>
         <p className="text-center text-black mb-8">
-          {setupRequired 
+          {setupRequired
             ? 'Scan the QR code with your authenticator app, then enter the code'
             : 'Enter the 6-digit code from your authenticator app'}
         </p>

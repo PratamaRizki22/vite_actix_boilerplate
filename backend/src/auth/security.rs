@@ -8,7 +8,36 @@ pub async fn setup_2fa(pool: web::Data<PgPool>, req: HttpRequest) -> Result<Http
     let current_user = get_current_user(&req)
         .ok_or_else(|| actix_web::error::ErrorUnauthorized("Not authenticated"))?;
 
-    // Generate random secret
+    // Check if user already has a secret
+    let user_data = sqlx::query!(
+        "SELECT totp_secret, totp_enabled, recovery_codes FROM users WHERE id = $1",
+        current_user.sub
+    )
+    .fetch_one(pool.get_ref())
+    .await
+    .map_err(|_| actix_web::error::ErrorInternalServerError("Database error"))?;
+
+    if user_data.totp_enabled.unwrap_or(false) {
+        return Ok(HttpResponse::BadRequest().json(serde_json::json!({
+            "error": "2FA is already enabled"
+        })));
+    }
+
+    // If secret exists but not enabled, reuse it (don't regenerate)
+    if let (Some(secret), Some(codes)) = (user_data.totp_secret, user_data.recovery_codes) {
+        let qr_code_url = format!(
+            "otpauth://totp/USH:{}?secret={}&issuer=USH&algorithm=SHA1&digits=6&period=30",
+            current_user.username, secret
+        );
+
+        return Ok(HttpResponse::Ok().json(serde_json::json!({
+            "secret": secret,
+            "qr_code_url": qr_code_url,
+            "recovery_codes": codes
+        })));
+    }
+
+    // Generate random secret (only if none exists)
     use rand::Rng;
     let mut secret_bytes = [0u8; 20];
     rand::thread_rng().fill(&mut secret_bytes);
@@ -132,11 +161,17 @@ pub async fn verify_2fa(
     };
 
     // Check if the provided code is valid with time window tolerance
-    // totp_rs has built-in ±1 step tolerance by default (±30 seconds)
-    let is_valid = totp.check_current(&verify_data.code).unwrap_or(false);
+    // Use check() method with current timestamp to allow ±1 step (±30 seconds) tolerance
+    let current_time = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    
+    let is_valid = totp.check(&verify_data.code, current_time);
     
     println!("🔍 TOTP Verification Result:");
     println!("  - Code entered: {}", verify_data.code);
+    println!("  - Current timestamp: {}", current_time);
     println!("  - Valid: {}", is_valid);
     
     // Also check what codes would be valid now (for debugging)

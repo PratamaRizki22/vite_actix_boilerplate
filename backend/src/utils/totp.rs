@@ -22,18 +22,26 @@ pub fn verify_totp_code(secret: &str, code: &str) -> Result<bool, Box<dyn std::e
         "user".to_string(),        // account name
     )?;
 
-    // Verify the code
-    let is_valid = totp.check_current(code)?;
+    // Get current timestamp
+    let current_time = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| format!("Failed to get current time: {}", e))?
+        .as_secs();
+
+    // Verify the code with time skew tolerance
+    // This will check current window, previous window (-30s), and next window (+30s)
+    let is_valid = totp.check(code, current_time);
     
     println!("\n=== TOTP Verification (utils/totp.rs) ===");
     println!("  Secret (base32): {}", secret);
     println!("  Code provided: {}", code);
+    println!("  Current timestamp: {}", current_time);
     println!("  Is valid: {}", is_valid);
     
     // Always show what the expected code is for debugging
     match totp.generate_current() {
         Ok(current_code) => {
-            println!("  Expected code: {}", current_code);
+            println!("  Expected code (current window): {}", current_code);
             println!("  Match: {}", if current_code == code { "✅ YES" } else { "❌ NO" });
         }
         Err(e) => println!("  Error generating code: {:?}", e),

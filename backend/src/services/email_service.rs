@@ -1,4 +1,4 @@
-use crate::services::turbo_smtp::TurboSmtpService;
+use crate::services::brevo_smtp::BrevoSmtpService;
 use std::collections::HashMap;
 use std::sync::Mutex;
 use lazy_static::lazy_static;
@@ -11,13 +11,13 @@ lazy_static! {
 }
 
 pub struct EmailService {
-    smtp_service: TurboSmtpService,
+    smtp_service: BrevoSmtpService,
 }
 
 impl EmailService {
     pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
-        println!("Initializing Turbo SMTP email service");
-        let smtp_service = TurboSmtpService::new()?;
+        println!("Initializing Brevo SMTP email service");
+        let smtp_service = BrevoSmtpService::new()?;
 
         Ok(Self { smtp_service })
     }
@@ -138,9 +138,9 @@ impl EmailService {
         let mut codes = MFA_VERIFICATION_CODES.lock().unwrap();
         // Remove any old code for this user first
         codes.remove(&user_id);
-        let expires_at = Utc::now() + Duration::minutes(5);
+        let expires_at = Utc::now() + Duration::minutes(2);
         codes.insert(user_id, (code.to_string(), expires_at));
-        println!("Stored MFA verification code {} for user {} (expires in 5 minutes)", code, user_id);
+        println!("Stored MFA verification code {} for user {} (expires in 2 minutes)", code, user_id);
     }
 
     pub fn get_mfa_verification_code(user_id: i32) -> Option<String> {

@@ -12,7 +12,7 @@ const LoginPage = () => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [rateLimitRemaining, setRateLimitRemaining] = useState(0);
-  
+
   const navigate = useNavigate();
   const { login } = useAuth();
 
@@ -23,7 +23,7 @@ const LoginPage = () => {
       const expiryTime = parseInt(storedLimitTime);
       const now = Date.now();
       const remaining = Math.ceil((expiryTime - now) / 1000);
-      
+
       if (remaining > 0) {
         setRateLimitRemaining(remaining);
       } else {
@@ -37,7 +37,7 @@ const LoginPage = () => {
     if (rateLimitRemaining > 0) {
       const timer = setTimeout(() => {
         setRateLimitRemaining(rateLimitRemaining - 1);
-        
+
         // Update localStorage dengan time remaining
         if (rateLimitRemaining - 1 > 0) {
           const expiryTime = Date.now() + ((rateLimitRemaining - 1) * 1000);
@@ -54,26 +54,26 @@ const LoginPage = () => {
     try {
       setLoading(true);
       console.log('Google response:', credentialResponse);
-      
+
       // Get the token from the response
       const token = credentialResponse?.credential || credentialResponse?.access_token;
-      
+
       if (!token) {
         setError('No credential received from Google');
         return;
       }
-      
+
       const result = await googleAuthService.verifyGoogleToken(token);
-      
+
       // Redirect to auth method selection page
-      navigate('/auth-method-select', { 
-        state: { 
+      navigate('/auth-method-select', {
+        state: {
           temp_token: result.temp_token,
           mfa_methods: result.mfa_methods,
           user: result.user,
           can_skip_mfa: result.can_skip_mfa,
           isLogin: true
-        } 
+        }
       });
     } catch (err) {
       console.error('Google login error:', err);
@@ -109,45 +109,42 @@ const LoginPage = () => {
       }
 
       const response = await login(trimmedEmail, trimmedPassword);
-      
-      // Check if user has 2FA disabled - direct login (has token)
+
+      // Check if user has 2FA disabled - FORCE setup (mandatory 2FA)
       if (response.token) {
-        console.log('User has no 2FA - direct login successful');
-        
-        // Store token and user data
-        localStorage.setItem('token', response.token);
-        if (response.refresh_token) {
-          localStorage.setItem('refresh_token', response.refresh_token);
-        }
-        if (response.user) {
-          localStorage.setItem('user', JSON.stringify(response.user));
-        }
-        
-        // Dispatch auth event and navigate to dashboard
-        window.dispatchEvent(new Event('auth-update'));
-        navigate('/dashboard');
+        console.log('User has no 2FA - forcing 2FA setup');
+
+        // Force user to setup 2FA before login
+        navigate('/2fa-setup', {
+          state: {
+            user: response.user,
+            email: response.user.email,
+            forceSetup: true,
+            mandatory: true,
+            message: '2FA is required for all accounts. Please complete setup to continue.'
+          }
+        });
         return;
       }
-      
-      // User has 2FA enabled - redirect to auth method selection page
-      navigate('/auth-method-select', { 
-        state: { 
+
+      // User has 2FA enabled - redirect to 2FA verification
+      // For mandatory 2FA, only TOTP is allowed (no Email OTP for login)
+      navigate('/2fa-verify', {
+        state: {
           temp_token: response.temp_token,
-          mfa_methods: response.mfa_methods,
           user: response.user,
-          can_skip_mfa: response.can_skip_mfa,
           isLogin: true
-        } 
+        }
       });
     } catch (err) {
       // Check if rate limited
       if (err.response?.status === 429) {
         const retryAfter = err.response?.data?.retry_after || 180;
         const expiryTime = Date.now() + (retryAfter * 1000);
-        
+
         // Store expiry time di localStorage
         localStorage.setItem('loginRateLimitExpiry', expiryTime.toString());
-        
+
         setRateLimitRemaining(retryAfter);
         setError(`Too many login attempts. Please try again in ${retryAfter} seconds.`);
       }
@@ -155,7 +152,7 @@ const LoginPage = () => {
       else if (err.response?.data?.needs_verification) {
         // Email not verified → need to verify first
         console.log('Email not verified, redirecting to OTP verification');
-        
+
         // Send verification email
         try {
           await axios.post(
@@ -169,13 +166,16 @@ const LoginPage = () => {
           setLoading(false);
           return;
         }
-        
+
         // Redirect ke OTP verification page dengan email & credentials untuk auto-login setelah verify
-        navigate('/verify-otp', { state: { 
-          email: email,
-          credentials: { email, password },
-          codeSent: true // Flag to indicate code was already sent
-        } });
+        navigate('/verify-otp', {
+          state: {
+            email: email,
+            credentials: { email, password },
+            autoSent: true, // Flag to indicate code was auto-sent
+            isRegistration: true // Treat as registration flow for verification
+          }
+        });
       } else {
         // Other errors
         setError(err.response?.data?.error || 'Login failed');
@@ -215,7 +215,12 @@ const LoginPage = () => {
           </div>
 
           <div>
-            <label className="block text-black font-bold mb-2">Password</label>
+            <div className="flex justify-between items-center mb-2">
+              <label className="block text-black font-bold">Password</label>
+              <Link to="/forgot-password" className="text-xs text-gray-600 hover:text-black hover:underline">
+                Forgot Password?
+              </Link>
+            </div>
             <div className="relative">
               <input
                 type={showPassword ? 'text' : 'password'}

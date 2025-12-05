@@ -9,7 +9,7 @@ const Web3AuthPage = () => {
   const [signature, setSignature] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  
+
   const navigate = useNavigate();
   const { getWeb3Challenge, verifyWeb3Signature } = useAuth();
 
@@ -149,7 +149,7 @@ const Web3AuthPage = () => {
 
     try {
       const response = await verifyWeb3Signature(address, challenge, sig);
-      
+
       // Check if user has 2FA enabled
       if (response.user && response.user.two_factor_enabled) {
         // Redirect to 2FA verification page
@@ -159,14 +159,14 @@ const Web3AuthPage = () => {
         navigate('/dashboard');
       }
     } catch (err) {
-      setError(err.response?.data?.error || 'Signature verification failed');
+      setError(err.response?.data?.error || err.response?.data?.message || 'Signature verification failed');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-      <div className="min-h-screen bg-white flex items-center justify-center p-4">
+    <div className="min-h-screen bg-white flex items-center justify-center p-4">
       <div className="w-full max-w-md border border-black p-8">
         <h1 className="text-3xl font-bold text-black mb-2 text-center">Web3 Authentication</h1>
         <p className="text-center text-black text-sm mb-6">Sepolia Testnet Only</p>

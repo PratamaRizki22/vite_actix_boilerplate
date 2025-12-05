@@ -51,11 +51,11 @@ pub async fn web3_challenge(
             .as_secs()
     );
 
-    // Store challenge in database with 5-minute expiration
+    // Store challenge (the full message) in database with 5-minute expiration
     let _ = Web3ChallengeService::create_challenge(
         pool.get_ref(),
         &challenge_data.address,
-        &challenge,
+        &message, // Store the full message!
         300, // 5 minutes TTL
     ).await;
 
@@ -86,9 +86,9 @@ pub async fn web3_verify(
             "retry_after": reset_seconds
         })));
     }
-    use std::time::{SystemTime, UNIX_EPOCH};
 
     // Verify challenge exists in database and is not expired
+    // verify_data.challenge is the full message now
     let challenge_valid = Web3ChallengeService::verify_challenge(
         pool.get_ref(),
         &verify_data.address,
@@ -106,21 +106,11 @@ pub async fn web3_verify(
     // Mark challenge as used
     let _ = Web3ChallengeService::mark_used(pool.get_ref(), &verify_data.challenge).await;
 
-    // Create message for signing (same format as web3_challenge)
-    let message = format!(
-        "Welcome to USH!\n\nPlease sign this message to authenticate with your wallet.\n\nAddress: {}\n\nChallenge: {}\n\nTimestamp: {}",
-        verify_data.address,
-        verify_data.challenge,
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs()
-    );
-
     // Verify signature using ethers-rs
+    // Use verify_data.challenge directly as the message
     let recovered_address = match verify_web3_signature(
         &verify_data.signature,
-        &message,
+        &verify_data.challenge,
         &verify_data.address,
     ) {
         Ok(addr) => addr,
