@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, username, email, password, role, wallet_address, email_verified, totp_enabled, recovery_codes, created_at, updated_at\n         FROM users WHERE email = $1",
+  "query": "SELECT id, username, email, password, role, wallet_address, email_verified, totp_enabled, recovery_codes, is_banned, banned_until, last_login, created_at, updated_at \n         FROM users\n         ORDER BY created_at DESC",
   "describe": {
     "columns": [
       {
@@ -50,19 +50,32 @@
       },
       {
         "ordinal": 9,
+        "name": "is_banned",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 10,
+        "name": "banned_until",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 11,
+        "name": "last_login",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 12,
         "name": "created_at",
         "type_info": "Timestamp"
       },
       {
-        "ordinal": 10,
+        "ordinal": 13,
         "name": "updated_at",
         "type_info": "Timestamp"
       }
     ],
     "parameters": {
-      "Left": [
-        "Text"
-      ]
+      "Left": []
     },
     "nullable": [
       false,
@@ -74,9 +87,12 @@
       false,
       true,
       true,
+      true,
+      true,
+      true,
       false,
       false
     ]
   },
-  "hash": "1702c6613dcc6eebcbe75b589f7fbc4679add92d71b123bffee5f67568397213"
+  "hash": "a27d780b9f744fff65807faab52cc05fa5ad47be1f7cb5faf1dc3d2be7eaac5c"
 }

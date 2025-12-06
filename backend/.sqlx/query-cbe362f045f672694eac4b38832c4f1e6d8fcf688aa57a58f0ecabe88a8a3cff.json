@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO users (username, email, password, role, email_verified)\n         VALUES ($1, $2, $3, 'user', false)\n         RETURNING id, username, email, password, role, wallet_address, email_verified, totp_enabled, recovery_codes, created_at, updated_at",
+  "query": "SELECT id, username, email, password, role, wallet_address, email_verified, totp_enabled, recovery_codes, is_banned, banned_until, last_login, created_at, updated_at\n         FROM users WHERE email = $1",
   "describe": {
     "columns": [
       {
@@ -50,20 +50,33 @@
       },
       {
         "ordinal": 9,
+        "name": "is_banned",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 10,
+        "name": "banned_until",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 11,
+        "name": "last_login",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 12,
         "name": "created_at",
         "type_info": "Timestamp"
       },
       {
-        "ordinal": 10,
+        "ordinal": 13,
         "name": "updated_at",
         "type_info": "Timestamp"
       }
     ],
     "parameters": {
       "Left": [
-        "Varchar",
-        "Varchar",
-        "Varchar"
+        "Text"
       ]
     },
     "nullable": [
@@ -76,9 +89,12 @@
       false,
       true,
       true,
+      true,
+      true,
+      true,
       false,
       false
     ]
   },
-  "hash": "df5742dcfe281c77d0205dcdb49705aca45404b5834664656a3cb09dab75cc0a"
+  "hash": "cbe362f045f672694eac4b38832c4f1e6d8fcf688aa57a58f0ecabe88a8a3cff"
 }

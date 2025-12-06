@@ -1,0 +1,68 @@
+version: '3.8'
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: wallet_postgres
+    env_file:
+      - .env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    network_mode: "host"
+
+  redis:
+    image: redis:7-alpine
+    container_name: wallet_redis
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-redis_password}
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-redis_password}", "ping" ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    network_mode: "host"
+
+  backend:
+    image: pratamarizki22/wallet-backend:latest
+    container_name: wallet_backend
+    env_file:
+      - .env
+    environment:
+      # Menggunakan 127.0.0.1 karena network_mode: host
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@127.0.0.1:5432/${POSTGRES_DB}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@127.0.0.1:6379
+      HOST: 0.0.0.0
+      PORT: 8080
+      JWT_SECRET: ${JWT_SECRET}
+      RUST_LOG: ${RUST_LOG:-info}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173}
+      EMAIL_PROVIDER: ${EMAIL_PROVIDER}
+      BREVO_SMTP_USERNAME: ${BREVO_SMTP_USERNAME}
+      BREVO_SMTP_PASSWORD: ${BREVO_SMTP_PASSWORD}
+      BREVO_SMTP_SERVER: ${BREVO_SMTP_SERVER}
+      BREVO_SMTP_PORT: ${BREVO_SMTP_PORT}
+    depends_on:
+      postgres:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    network_mode: "host"
+
+  frontend:
+    image: pratamarizki22/wallet-frontend:latest
+    container_name: wallet_frontend
+    depends_on:
+      - backend
+    restart: unless-stopped
+    network_mode: "host"
+
+volumes:
+  postgres_data:
+  redis_data:

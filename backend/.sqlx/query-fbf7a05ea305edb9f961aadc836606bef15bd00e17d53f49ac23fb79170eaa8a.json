@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, username, email, password, role, wallet_address, email_verified, totp_enabled, recovery_codes, created_at, updated_at FROM users WHERE wallet_address = $1",
+  "query": "SELECT id, username, email, password, role, wallet_address, email_verified, totp_enabled, recovery_codes, is_banned, banned_until, last_login, created_at, updated_at \n         FROM users \n         WHERE to_tsvector('english', username) @@ to_tsquery('english', $1)\n         ORDER BY ts_rank(to_tsvector('english', username), to_tsquery('english', $1)) DESC, username ASC\n         LIMIT $2 OFFSET $3",
   "describe": {
     "columns": [
       {
@@ -50,18 +50,35 @@
       },
       {
         "ordinal": 9,
+        "name": "is_banned",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 10,
+        "name": "banned_until",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 11,
+        "name": "last_login",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 12,
         "name": "created_at",
         "type_info": "Timestamp"
       },
       {
-        "ordinal": 10,
+        "ordinal": 13,
         "name": "updated_at",
         "type_info": "Timestamp"
       }
     ],
     "parameters": {
       "Left": [
-        "Text"
+        "Text",
+        "Int8",
+        "Int8"
       ]
     },
     "nullable": [
@@ -74,9 +91,12 @@
       false,
       true,
       true,
+      true,
+      true,
+      true,
       false,
       false
     ]
   },
-  "hash": "00833d8def7332f5fa6a2979e4fc442dee804d52167d98fd7cbe6bb940af427d"
+  "hash": "fbf7a05ea305edb9f961aadc836606bef15bd00e17d53f49ac23fb79170eaa8a"
 }

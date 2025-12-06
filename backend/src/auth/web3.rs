@@ -143,14 +143,8 @@ pub async fn web3_verify(
 
     let user = match user_result {
         Ok(Some(user)) => {
-            // Wallet already registered - this is a login, not registration
-            return Ok(HttpResponse::Conflict().json(serde_json::json!({
-                "success": false,
-                "error": "Wallet already registered",
-                "message": "This wallet address is already registered. Please use login instead.",
-                "already_registered": true,
-                "should_login": true
-            })));
+            // Wallet already registered - proceed with login
+            user
         }
         Ok(None) => {
             // Generate readable username for Web3 user
