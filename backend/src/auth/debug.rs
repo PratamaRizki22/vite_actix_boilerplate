@@ -1,10 +1,12 @@
 use actix_web::{HttpResponse, Result, web};
 use sqlx::PgPool;
+use serde::Deserialize;
 
 use crate::services::token_blacklist::TokenBlacklist;
 use crate::services::account_lockout::AccountLockout;
 use crate::services::cleanup_service::CleanupService;
 use crate::services::email_service::EmailService;
+use crate::utils::auth::AuthUtils;
 
 pub async fn blacklist_stats(pool: web::Data<PgPool>) -> Result<HttpResponse> {
     match TokenBlacklist::get_stats(pool.get_ref()).await {
@@ -115,6 +117,29 @@ pub async fn get_unverified_accounts_stats(pool: web::Data<PgPool>) -> Result<Ht
             eprintln!("Failed to get unverified accounts stats: {}", e);
             Ok(HttpResponse::InternalServerError().json(serde_json::json!({
                 "error": "Failed to get unverified accounts statistics"
+            })))
+        }
+    }
+}
+
+#[derive(Deserialize)]
+pub struct HashPasswordRequest {
+    pub password: String,
+}
+
+pub async fn hash_password_debug(req: web::Json<HashPasswordRequest>) -> Result<HttpResponse> {
+    match AuthUtils::hash_password(&req.password) {
+        Ok(hash) => {
+            Ok(HttpResponse::Ok().json(serde_json::json!({
+                "password": req.password,
+                "hash": hash,
+                "message": "Password hashed successfully"
+            })))
+        }
+        Err(e) => {
+            eprintln!("Failed to hash password: {}", e);
+            Ok(HttpResponse::InternalServerError().json(serde_json::json!({
+                "error": "Failed to hash password"
             })))
         }
     }

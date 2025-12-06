@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM users\n             WHERE email_verified = false\n             AND password != 'google_oauth'\n             AND password != 'web3_auth'\n             AND created_at < $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Timestamp"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "126183341943958f9726353004c276afb0d4b518ab232d896b50077698b84f1b"
+}

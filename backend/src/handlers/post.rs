@@ -1,10 +1,12 @@
 use crate::middleware::auth::get_current_user;
+use crate::middleware::redis_cache::RedisCache;
 use crate::models::post::{CreatePost, Post, PostResponse};
 use actix_web::{HttpResponse, Result, web};
 use sqlx::PgPool;
 
 pub async fn get_all_posts(
     pool: web::Data<PgPool>,
+    redis: web::Data<RedisCache>,
     query: web::Query<std::collections::HashMap<String, String>>,
 ) -> Result<HttpResponse> {
     let page = query
@@ -12,8 +14,15 @@ pub async fn get_all_posts(
         .and_then(|p| p.parse::<i64>().ok())
         .unwrap_or(1)
         .max(1);
-    let limit: i64 = 50; // Changed from unlimited to 50 per page
+    let limit: i64 = 50;
     let offset = (page - 1) * limit;
+    
+    let cache_key = format!("feed:page:{}", page);
+    
+    // Try cache first
+    if let Ok(Some(cached_response)) = redis.get_posts::<serde_json::Value>(&cache_key).await {
+        return Ok(HttpResponse::Ok().json(cached_response));
+    }
     
     // Get total count
     let count_result = sqlx::query_scalar::<_, i64>(
@@ -37,7 +46,7 @@ pub async fn get_all_posts(
 
     let total_pages = (count_result + limit - 1) / limit;
 
-    Ok(HttpResponse::Ok().json(serde_json::json!({
+    let response = serde_json::json!({
         "data": posts,
         "pagination": {
             "page": page,
@@ -45,7 +54,12 @@ pub async fn get_all_posts(
             "total": count_result,
             "total_pages": total_pages
         }
-    })))
+    });
+    
+    // Cache for 5 minutes
+    let _ = redis.cache_posts(&cache_key, &response, 300).await;
+
+    Ok(HttpResponse::Ok().json(response))
 }
 
 pub async fn search_posts(
@@ -100,11 +114,27 @@ pub async fn get_posts(
 
 pub async fn create_post(
     pool: web::Data<PgPool>,
+    redis: web::Data<RedisCache>,
     post_data: web::Json<CreatePost>,
     req: actix_web::HttpRequest,
 ) -> Result<HttpResponse> {
     let current_user = get_current_user(&req)
         .ok_or_else(|| actix_web::error::ErrorUnauthorized("Not authenticated"))?;
+
+    // Check if user is banned
+    let user_banned = sqlx::query_scalar::<_, bool>(
+        "SELECT COALESCE(is_banned, false) FROM users WHERE id = $1"
+    )
+    .bind(current_user.sub)
+    .fetch_one(pool.get_ref())
+    .await
+    .unwrap_or(false);
+
+    if user_banned {
+        return Ok(HttpResponse::Forbidden().json(serde_json::json!({
+            "error": "Your account is banned. You cannot create posts."
+        })));
+    }
 
     let post = sqlx::query_as!(
         Post,
@@ -117,6 +147,9 @@ pub async fn create_post(
     .fetch_one(pool.get_ref())
     .await
     .map_err(|_| actix_web::error::ErrorInternalServerError("Database error"))?;
+
+    // Invalidate all posts cache
+    let _ = redis.invalidate_all_posts().await;
 
     Ok(HttpResponse::Created().json(post))
 }
@@ -153,12 +186,28 @@ pub async fn get_post(
 
 pub async fn update_post(
     pool: web::Data<PgPool>,
+    redis: web::Data<RedisCache>,
     path: web::Path<i32>,
     post_data: web::Json<CreatePost>,
     req: actix_web::HttpRequest,
 ) -> Result<HttpResponse> {
     let current_user = get_current_user(&req)
         .ok_or_else(|| actix_web::error::ErrorUnauthorized("Not authenticated"))?;
+
+    // Check if user is banned
+    let user_banned = sqlx::query_scalar::<_, bool>(
+        "SELECT COALESCE(is_banned, false) FROM users WHERE id = $1"
+    )
+    .bind(current_user.sub)
+    .fetch_one(pool.get_ref())
+    .await
+    .unwrap_or(false);
+
+    if user_banned {
+        return Ok(HttpResponse::Forbidden().json(serde_json::json!({
+            "error": "Your account is banned. You cannot update posts."
+        })));
+    }
 
     let post_id = path.into_inner();
 
@@ -179,6 +228,9 @@ pub async fn update_post(
         })));
     }
 
+    // Invalidate all posts cache
+    let _ = redis.invalidate_post(post_id).await;
+
     Ok(HttpResponse::Ok().json(serde_json::json!({
         "message": "Post updated successfully"
     })))
@@ -186,6 +238,7 @@ pub async fn update_post(
 
 pub async fn delete_post(
     pool: web::Data<PgPool>,
+    redis: web::Data<RedisCache>,
     path: web::Path<i32>,
     req: actix_web::HttpRequest,
 ) -> Result<HttpResponse> {
@@ -193,6 +246,9 @@ pub async fn delete_post(
         .ok_or_else(|| actix_web::error::ErrorUnauthorized("Not authenticated"))?;
 
     let post_id = path.into_inner();
+
+    // Invalidate all posts cache
+    let _ = redis.invalidate_post(post_id).await;
 
     // First check if post exists and user is authorized
     let post_exists = if current_user.role == "admin" {

@@ -1,0 +1,69 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO sessions \n             (user_id, token_hash, device_name, ip_address, user_agent, last_activity, expires_at)\n             VALUES ($1, $2, $3, $4, $5, NOW(), $6)\n             RETURNING id, user_id, device_name, ip_address, user_agent, \n                       last_activity, expires_at, created_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 2,
+        "name": "device_name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "ip_address",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "user_agent",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 5,
+        "name": "last_activity",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 6,
+        "name": "expires_at",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 7,
+        "name": "created_at",
+        "type_info": "Timestamp"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Timestamp"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "5af16a8675ddef9cd25fc07c4e67b1da84952d003c3aeabe41279cbeeec68199"
+}

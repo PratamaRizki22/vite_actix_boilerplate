@@ -1,6 +1,9 @@
 pub mod auth;
 pub mod rate_limiter;
 pub mod redis_rate_limiter;
+pub mod rate_limit_middleware;
+pub mod redis_session;
+pub mod redis_cache;
 pub mod security_headers;
 pub mod jwt_blacklist;
 pub mod redis_token_blacklist;

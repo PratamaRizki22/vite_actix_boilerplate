@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE users SET email_verified = true WHERE LOWER(TRIM(email)) = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0833df8f2152f04285fde866ea4e4a8048cb65a62eb5efb8340e0a48d68474f6"
+}

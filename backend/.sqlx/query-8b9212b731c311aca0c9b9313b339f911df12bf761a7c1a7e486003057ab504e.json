@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE web3_challenges SET used_at = NOW() WHERE challenge = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8b9212b731c311aca0c9b9313b339f911df12bf761a7c1a7e486003057ab504e"
+}

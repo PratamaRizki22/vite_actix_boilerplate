@@ -11,6 +11,7 @@ use std::rc::Rc;
 use crate::models::auth::Claims;
 use crate::utils::auth::{AuthError, AuthUtils};
 use crate::services::token_blacklist::TokenBlacklistService;
+use crate::middleware::redis_token_blacklist::RedisTokenBlacklist;
 
 pub struct AuthMiddleware {
     pub required_role: Option<String>,
@@ -90,7 +91,16 @@ where
             let token = AuthUtils::extract_token_from_header(auth_header)
                 .map_err(|_| actix_web::error::ErrorUnauthorized("Invalid token format"))?;
 
-            // Check if token is blacklisted (important: before validating expiry)
+            // Check if token is blacklisted in Redis (important: before validating expiry)
+            if let Some(redis_blacklist) = req.app_data::<actix_web::web::Data<RedisTokenBlacklist>>() {
+                if let Ok(is_blacklisted) = redis_blacklist.is_blacklisted(token).await {
+                    if is_blacklisted {
+                        return Err(actix_web::error::ErrorUnauthorized("Token has been revoked"));
+                    }
+                }
+            }
+
+            // Fallback to database blacklist check
             if let Some(blacklist_service) = req.app_data::<actix_web::web::Data<TokenBlacklistService>>() {
                 if let Ok(is_blacklisted) = blacklist_service.is_blacklisted(token).await {
                     if is_blacklisted {
@@ -112,7 +122,25 @@ where
             }
 
             // Add claims to request extensions for handlers to use
-            req.extensions_mut().insert(claims);
+            req.extensions_mut().insert(claims.clone());
+
+            // Update user's last_login (Last Active) timestamp
+            // We do this asynchronously and don't block the request if it fails
+            if let Some(pool) = req.app_data::<actix_web::web::Data<sqlx::PgPool>>() {
+                let user_id = claims.sub;
+                let pool = pool.clone();
+                
+                // Spawn a background task to update last_login
+                // This prevents slowing down the response
+                actix_web::rt::spawn(async move {
+                    let _ = sqlx::query!(
+                        "UPDATE users SET last_login = NOW() WHERE id = $1",
+                        user_id
+                    )
+                    .execute(pool.get_ref())
+                    .await;
+                });
+            }
 
             // Continue to the next service
             service.call(req).await

@@ -1,0 +1,64 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, user_id, device_name, ip_address, user_agent,\n                    last_activity, expires_at, created_at\n             FROM sessions \n             WHERE user_id = $1 AND expires_at > NOW()\n             ORDER BY last_activity DESC",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 2,
+        "name": "device_name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "ip_address",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "user_agent",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 5,
+        "name": "last_activity",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 6,
+        "name": "expires_at",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 7,
+        "name": "created_at",
+        "type_info": "Timestamp"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "df759cf23e5f57d9cba481e2e4c425cfb9103c0fc5c25f1abbdadd32ced176a5"
+}

@@ -8,8 +8,8 @@ pub struct AccountLockout;
 
 impl AccountLockout {
     pub const MAX_ATTEMPTS: i32 = 5;
-    pub const INITIAL_LOCKOUT_MINUTES: i64 = 15;
-    pub const MAX_LOCKOUT_MINUTES: i64 = 240; // 4 hours
+    pub const INITIAL_LOCKOUT_MINUTES: i64 = 2;  // Changed from 15 to 2 minutes
+    pub const MAX_LOCKOUT_MINUTES: i64 = 30;     // Changed from 240 to 30 minutes
 
     /// Record a failed login attempt and check lockout status
     pub async fn record_failed_attempt(pool: &PgPool, user_id: i32) -> Result<(), sqlx::Error> {

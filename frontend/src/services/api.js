@@ -23,9 +23,17 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      // Clear token and redirect to login
-      localStorage.removeItem('token');
-      window.location.href = '/login';
+      // Don't redirect if this is a login/register/auth attempt
+      const isAuthEndpoint = error.config?.url?.includes('/auth/login') ||
+        error.config?.url?.includes('/auth/register') ||
+        error.config?.url?.includes('/auth/google') ||
+        error.config?.url?.includes('/auth/web3');
+
+      if (!isAuthEndpoint) {
+        // Only redirect for authenticated requests with invalid/expired tokens
+        localStorage.removeItem('token');
+        window.location.href = '/login';
+      }
     }
     return Promise.reject(error);
   }

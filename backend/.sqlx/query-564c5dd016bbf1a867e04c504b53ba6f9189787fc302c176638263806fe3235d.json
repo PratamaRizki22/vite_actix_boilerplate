@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO web3_challenges (address, challenge, expires_at) \n             VALUES ($1, $2, $3)\n             ON CONFLICT(challenge) DO UPDATE SET expires_at = EXCLUDED.expires_at",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Timestamp"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "564c5dd016bbf1a867e04c504b53ba6f9189787fc302c176638263806fe3235d"
+}

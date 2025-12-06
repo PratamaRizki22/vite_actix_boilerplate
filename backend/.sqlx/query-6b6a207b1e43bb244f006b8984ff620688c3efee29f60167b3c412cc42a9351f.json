@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT challenge FROM web3_challenges \n             WHERE address = $1 AND used_at IS NULL AND expires_at > NOW()\n             ORDER BY created_at DESC LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "challenge",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "6b6a207b1e43bb244f006b8984ff620688c3efee29f60167b3c412cc42a9351f"
+}

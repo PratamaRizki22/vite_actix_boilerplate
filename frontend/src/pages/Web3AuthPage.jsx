@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import Notification from '../components/Notification';
+import { useNotification } from '../hooks/useNotification';
 
 const Web3AuthPage = () => {
   const [address, setAddress] = useState('');
@@ -9,6 +11,7 @@ const Web3AuthPage = () => {
   const [signature, setSignature] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const { notification, showNotification, hideNotification } = useNotification();
 
   const navigate = useNavigate();
   const { getWeb3Challenge, verifyWeb3Signature } = useAuth();
@@ -159,7 +162,16 @@ const Web3AuthPage = () => {
         navigate('/dashboard');
       }
     } catch (err) {
-      setError(err.response?.data?.error || err.response?.data?.message || 'Signature verification failed');
+      // Check if already registered (HTTP 409 Conflict)
+      if (err.response?.status === 409 && err.response?.data?.already_registered) {
+        showNotification('This wallet is already registered. Redirecting to login...', 'warning', 2000);
+        setTimeout(() => {
+          navigate('/login');
+        }, 2000);
+        return;
+      }
+      
+      showNotification(err.response?.data?.error || err.response?.data?.message || 'Signature verification failed', 'error', 4000);
     } finally {
       setLoading(false);
     }
@@ -167,6 +179,15 @@ const Web3AuthPage = () => {
 
   return (
     <div className="min-h-screen bg-white flex items-center justify-center p-4">
+      {notification && (
+        <Notification
+          message={notification.message}
+          type={notification.type}
+          duration={notification.duration}
+          onClose={hideNotification}
+        />
+      )}
+      
       <div className="w-full max-w-md border border-black p-8">
         <h1 className="text-3xl font-bold text-black mb-2 text-center">Web3 Authentication</h1>
         <p className="text-center text-black text-sm mb-6">Sepolia Testnet Only</p>

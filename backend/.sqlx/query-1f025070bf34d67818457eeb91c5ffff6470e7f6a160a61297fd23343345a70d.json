@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO account_lockout (user_id, failed_attempts, last_attempt) VALUES ($1, 1, NOW())",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1f025070bf34d67818457eeb91c5ffff6470e7f6a160a61297fd23343345a70d"
+}

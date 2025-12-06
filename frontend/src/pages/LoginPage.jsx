@@ -4,6 +4,8 @@ import { useAuth } from '../context/AuthContext';
 import { useGoogleLogin } from '@react-oauth/google';
 import axios from 'axios';
 import googleAuthService from '../services/googleAuthService';
+import Notification from '../components/Notification';
+import { useNotification } from '../hooks/useNotification';
 
 const LoginPage = () => {
   const [email, setEmail] = useState('');
@@ -12,6 +14,7 @@ const LoginPage = () => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [rateLimitRemaining, setRateLimitRemaining] = useState(0);
+  const { notification, showNotification, hideNotification } = useNotification();
 
   const navigate = useNavigate();
   const { login } = useAuth();
@@ -92,9 +95,7 @@ const LoginPage = () => {
     flow: 'implicit',
   });
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setError('');
+  const handleSubmit = async () => {
     setLoading(true);
 
     try {
@@ -103,15 +104,30 @@ const LoginPage = () => {
       const trimmedPassword = password.trim();
 
       if (!trimmedEmail || !trimmedPassword) {
-        setError('Email and password are required');
+        showNotification('Email and password are required', 'warning', 3000);
         setLoading(false);
         return;
       }
 
       const response = await login(trimmedEmail, trimmedPassword);
+      console.log('Login response:', response);
+
+
+      // Check if MFA is required (user has 2FA enabled)
+      if (response.requires_mfa || response.temp_token) {
+        // User has 2FA enabled - redirect to 2FA verification
+        navigate('/2fa-verify', {
+          state: {
+            temp_token: response.temp_token,
+            user: response.user,
+            isLogin: true
+          }
+        });
+        return;
+      }
 
       // Check if user has 2FA disabled - FORCE setup (mandatory 2FA)
-      if (response.token) {
+      if (response.token && !response.requires_mfa) {
         console.log('User has no 2FA - forcing 2FA setup');
 
         // Force user to setup 2FA before login
@@ -127,15 +143,11 @@ const LoginPage = () => {
         return;
       }
 
-      // User has 2FA enabled - redirect to 2FA verification
-      // For mandatory 2FA, only TOTP is allowed (no Email OTP for login)
-      navigate('/2fa-verify', {
-        state: {
-          temp_token: response.temp_token,
-          user: response.user,
-          isLogin: true
-        }
-      });
+      // Fallback: if we reach here, something unexpected happened
+      console.warn('Unexpected login response - no navigation triggered', response);
+      showNotification('Login successful but unable to proceed. Please contact support.', 'warning', 5000);
+
+
     } catch (err) {
       // Check if rate limited
       if (err.response?.status === 429) {
@@ -162,7 +174,7 @@ const LoginPage = () => {
           console.log('Verification email sent');
         } catch (emailErr) {
           console.error('Failed to send verification email:', emailErr);
-          setError('Failed to send verification email. Please try again.');
+          showNotification('Failed to send verification email. Please try again.', 'error', 4000);
           setLoading(false);
           return;
         }
@@ -177,8 +189,12 @@ const LoginPage = () => {
           }
         });
       } else {
-        // Other errors
-        setError(err.response?.data?.error || 'Login failed');
+        // Other errors (invalid credentials, etc.) - ONLY show notification, NO setError
+        console.log('Login error caught:', err.response?.data);
+        const errorMessage = err.response?.data?.error || 'Invalid credentials';
+        console.log('Showing notification with message:', errorMessage);
+        showNotification(errorMessage, 'error', 5000);
+        // DO NOT use setError to avoid re-render
       }
     } finally {
       setLoading(false);
@@ -187,30 +203,47 @@ const LoginPage = () => {
 
   return (
     <div className="min-h-screen bg-white flex items-center justify-center p-4">
+      {notification && (
+        <Notification
+          message={notification.message}
+          type={notification.type}
+          duration={notification.duration}
+          onClose={hideNotification}
+        />
+      )}
+
       <div className="w-full max-w-md border border-black p-8">
         <h1 className="text-3xl font-bold text-black mb-8 text-center">Login</h1>
 
         {error && (
-          <div className={`border-2 p-4 mb-6 ${rateLimitRemaining > 0 ? 'border-red-600 bg-red-50 text-red-700' : 'border-black bg-white text-black'}`}>
-            <p className="font-bold mb-2">{error}</p>
+          <div className={`border-2 p-4 mb-6 ${rateLimitRemaining > 0
+            ? 'border-red-600 bg-red-50 text-red-700'
+            : 'border-orange-500 bg-orange-50 text-orange-800'
+            }`}>
+            <p className="font-medium">{error}</p>
             {rateLimitRemaining > 0 && (
-              <p className="text-sm font-bold">
-                ⏱ Try again in: <span className="text-lg font-mono">{Math.floor(rateLimitRemaining / 60)}:{String(rateLimitRemaining % 60).padStart(2, '0')}</span>
+              <p className="text-sm font-bold mt-2">
+                Try again in: <span className="text-lg font-mono">{Math.floor(rateLimitRemaining / 60)}:{String(rateLimitRemaining % 60).padStart(2, '0')}</span>
               </p>
             )}
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-6">
+        <div className="space-y-6">
           <div>
             <label className="block text-black font-bold mb-2">Email</label>
             <input
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              required
               className="w-full border border-black p-2 bg-white text-black"
               placeholder="Enter your email"
+              onKeyPress={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  handleSubmit();
+                }
+              }}
             />
           </div>
 
@@ -226,9 +259,14 @@ const LoginPage = () => {
                 type={showPassword ? 'text' : 'password'}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                required
                 className="w-full border border-black p-2 pr-12 bg-white text-black"
                 placeholder="Enter your password"
+                onKeyPress={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleSubmit();
+                  }
+                }}
               />
               <button
                 type="button"
@@ -241,13 +279,14 @@ const LoginPage = () => {
           </div>
 
           <button
-            type="submit"
+            type="button"
+            onClick={handleSubmit}
             disabled={loading || rateLimitRemaining > 0}
             className="w-full bg-white border border-black text-black font-bold py-2 px-4 hover:bg-black hover:text-white transition disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {loading ? 'Logging in...' : rateLimitRemaining > 0 ? `Locked (${rateLimitRemaining}s)` : 'Login'}
           </button>
-        </form>
+        </div>
 
         <div className="mt-6 border-t border-black pt-6">
           <p className="text-center text-black mb-4">Or continue with:</p>

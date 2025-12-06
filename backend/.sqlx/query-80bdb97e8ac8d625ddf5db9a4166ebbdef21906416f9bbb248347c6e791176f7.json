@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE refresh_tokens SET reuse_detected = TRUE\n                     WHERE user_id = $1 AND token_family = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "80bdb97e8ac8d625ddf5db9a4166ebbdef21906416f9bbb248347c6e791176f7"
+}

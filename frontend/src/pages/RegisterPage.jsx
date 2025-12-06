@@ -4,6 +4,8 @@ import { useAuth } from '../context/AuthContext';
 import { useGoogleLogin } from '@react-oauth/google';
 import axios from 'axios';
 import googleAuthService from '../services/googleAuthService';
+import Notification from '../components/Notification';
+import { useNotification } from '../hooks/useNotification';
 
 const RegisterPage = () => {
   const [username, setUsername] = useState('');
@@ -14,6 +16,7 @@ const RegisterPage = () => {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const { notification, showNotification, hideNotification } = useNotification();
   
   const navigate = useNavigate();
   const { register } = useAuth();
@@ -99,23 +102,29 @@ const RegisterPage = () => {
       
       const result = await googleAuthService.verifyGoogleToken(token);
       
-      // Ensure token is actually stored before navigating
-      const storedToken = localStorage.getItem('token');
-      if (!storedToken) {
-        setError('Failed to store authentication token');
+      // Redirect to auth method selection page with temp token
+      navigate('/auth-method-select', {
+        state: {
+          temp_token: result.temp_token,
+          mfa_methods: result.mfa_methods,
+          user: result.user,
+          can_skip_mfa: result.can_skip_mfa,
+          isLogin: false // Registration flow
+        }
+      });
+    } catch (err) {
+      console.error('Google registration error:', err);
+      
+      // Check if already registered (HTTP 409 Conflict)
+      if (err.response?.status === 409 && err.response?.data?.already_registered) {
+        showNotification('This Google account is already registered. Redirecting to login...', 'warning', 2000);
+        setTimeout(() => {
+          navigate('/login');
+        }, 2000);
         return;
       }
       
-      // Dispatch event to notify AuthContext
-      window.dispatchEvent(new Event('auth-update'));
-      
-      // Small delay to ensure state updates propagate
-      setTimeout(() => {
-        navigate('/dashboard');
-      }, 100);
-    } catch (err) {
-      console.error('Google registration error:', err);
-      setError(err.response?.data?.error || err.message || 'Google registration failed');
+      showNotification(err.response?.data?.error || err.message || 'Google registration failed', 'error', 4000);
     } finally {
       setLoading(false);
     }
@@ -132,6 +141,15 @@ const RegisterPage = () => {
 
   return (
     <div className="min-h-screen bg-white flex items-center justify-center p-4">
+      {notification && (
+        <Notification
+          message={notification.message}
+          type={notification.type}
+          duration={notification.duration}
+          onClose={hideNotification}
+        />
+      )}
+      
       <div className="w-full max-w-md border border-black p-8">
         <h1 className="text-3xl font-bold text-black mb-8 text-center">Register</h1>
 

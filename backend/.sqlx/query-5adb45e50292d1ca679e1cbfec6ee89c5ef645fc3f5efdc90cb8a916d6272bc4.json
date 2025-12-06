@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE users SET totp_secret = $1, recovery_codes = $2 WHERE id = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "TextArray",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5adb45e50292d1ca679e1cbfec6ee89c5ef645fc3f5efdc90cb8a916d6272bc4"
+}

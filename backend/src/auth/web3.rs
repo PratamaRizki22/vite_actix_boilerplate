@@ -132,17 +132,26 @@ pub async fn web3_verify(
         }));
     }
 
-    // Check if user exists, create if not
+    // Check if user exists
     let user_result = sqlx::query_as!(
         User,
-        "SELECT id, username, email, password, role, wallet_address, email_verified, totp_enabled, recovery_codes, created_at, updated_at FROM users WHERE wallet_address = $1",
+        "SELECT id, username, email, password, role, wallet_address, email_verified, totp_enabled, recovery_codes, is_banned, banned_until, last_login, created_at, updated_at FROM users WHERE wallet_address = $1",
         verify_data.address
     )
     .fetch_optional(pool.get_ref())
     .await;
 
     let user = match user_result {
-        Ok(Some(user)) => user,
+        Ok(Some(user)) => {
+            // Wallet already registered - this is a login, not registration
+            return Ok(HttpResponse::Conflict().json(serde_json::json!({
+                "success": false,
+                "error": "Wallet already registered",
+                "message": "This wallet address is already registered. Please use login instead.",
+                "already_registered": true,
+                "should_login": true
+            })));
+        }
         Ok(None) => {
             // Generate readable username for Web3 user
             let username = format!(
@@ -154,7 +163,7 @@ pub async fn web3_verify(
                 User,
                 "INSERT INTO users (username, email, password, role, wallet_address, email_verified)
                  VALUES ($1, $2, $3, 'user', $4, true)
-                 RETURNING id, username, email, password, role, wallet_address, email_verified, totp_enabled, recovery_codes, created_at, updated_at",
+                 RETURNING id, username, email, password, role, wallet_address, email_verified, totp_enabled, recovery_codes, is_banned, banned_until, last_login, created_at, updated_at",
                 username, // readable username
                 None::<String>, // null email for Web3 users
                 "web3_auth", // dummy password

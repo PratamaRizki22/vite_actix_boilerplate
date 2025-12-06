@@ -4,6 +4,7 @@ use sqlx::PgPool;
 
 use crate::middleware::auth::get_current_user;
 use crate::middleware::rate_limiter::RateLimiter;
+use crate::middleware::redis_token_blacklist::RedisTokenBlacklist;
 use crate::models::auth::{LoginRequest, LoginResponse, RegisterRequest};
 use crate::models::user::{User, UserResponse};
 use crate::services::email_service::EmailService;
@@ -41,7 +42,7 @@ pub async fn login(
 
     let user = sqlx::query_as!(
         User,
-        "SELECT id, username, email, password, role, wallet_address, email_verified, totp_enabled, recovery_codes, created_at, updated_at
+        "SELECT id, username, email, password, role, wallet_address, email_verified, totp_enabled, recovery_codes, is_banned, banned_until, last_login, created_at, updated_at
          FROM users WHERE username = $1 OR email = $1 OR wallet_address = $1",
         login_identifier
     )
@@ -325,7 +326,7 @@ pub async fn verify_mfa(
     // Get user from database
     let user = sqlx::query_as!(
         User,
-        "SELECT id, username, email, password, role, wallet_address, email_verified, totp_enabled, recovery_codes, created_at, updated_at
+        "SELECT id, username, email, password, role, wallet_address, email_verified, totp_enabled, recovery_codes, is_banned, banned_until, last_login, created_at, updated_at
          FROM users WHERE id = $1",
         mfa_claims.user_id
     )
@@ -347,7 +348,7 @@ pub async fn verify_mfa(
                     })));
                 }
 
-                // Check if user already has totp_secret (from profile setup)
+                // Check if user already has totp_secret (from profile or registration setup)
                 let existing_secret = sqlx::query!(
                     "SELECT totp_secret FROM users WHERE id = $1",
                     user.id
@@ -357,14 +358,14 @@ pub async fn verify_mfa(
                 .map_err(|_| actix_web::error::ErrorInternalServerError("Failed to get user data"))?
                 .totp_secret;
 
-                // If secret already exists, this is profile setup - return it
+                // If secret exists and TOTP is NOT enabled yet, this is registration/setup - return QR
                 if let Some(secret) = existing_secret {
                     let qr_code_url = format!(
                         "otpauth://totp/USH:{}?secret={}&issuer=USH&algorithm=SHA1&digits=6&period=30",
                         user.username, secret
                     );
                     
-                    println!("DEBUG: Returning existing TOTP setup for profile/registration");
+                    println!("DEBUG: Returning existing TOTP setup for registration/profile (totp_enabled=false)");
                     return Ok(HttpResponse::Ok().json(serde_json::json!({
                         "setup_required": true,
                         "secret": secret,
@@ -373,11 +374,31 @@ pub async fn verify_mfa(
                     })));
                 }
 
-                // If no secret exists and totp_enabled is false, this might be a login attempt
-                // SECURITY: Reject this - we should never generate new QR during login
-                println!("SECURITY WARNING: Attempted to generate QR code during login - REJECTED");
-                return Ok(HttpResponse::BadRequest().json(serde_json::json!({
-                    "error": "2FA setup must be completed during registration or from profile settings, not during login."
+                // No secret exists - generate one for first-time setup
+                println!("DEBUG: Generating new TOTP secret for first-time setup");
+                let new_secret = crate::utils::totp::generate_totp_secret()
+                    .map_err(|_| actix_web::error::ErrorInternalServerError("Failed to generate TOTP secret"))?;
+                
+                // Store secret in database
+                sqlx::query!(
+                    "UPDATE users SET totp_secret = $1 WHERE id = $2",
+                    new_secret,
+                    user.id
+                )
+                .execute(pool.get_ref())
+                .await
+                .map_err(|_| actix_web::error::ErrorInternalServerError("Failed to save TOTP secret"))?;
+                
+                let qr_code_url = format!(
+                    "otpauth://totp/USH:{}?secret={}&issuer=USH&algorithm=SHA1&digits=6&period=30",
+                    user.username, new_secret
+                );
+                
+                return Ok(HttpResponse::Ok().json(serde_json::json!({
+                    "setup_required": true,
+                    "secret": new_secret,
+                    "qr_code_url": qr_code_url,
+                    "message": "Please scan this QR code with your authenticator app, then enter the 6-digit code to complete setup."
                 })));
             }
 
@@ -535,6 +556,14 @@ async fn complete_login(
         eprintln!("Failed to create session: {}", e);
     }
 
+    // Update last_login timestamp
+    let _ = sqlx::query!(
+        "UPDATE users SET last_login = NOW() WHERE id = $1",
+        user.id
+    )
+    .execute(pool.get_ref())
+    .await;
+
     // Generate refresh token
     let refresh_token = RefreshTokenService::generate_token();
     let _ = RefreshTokenService::create_refresh_token(
@@ -564,7 +593,11 @@ async fn complete_login(
 }
 
 
-pub async fn logout(req: HttpRequest, pool: web::Data<PgPool>) -> Result<HttpResponse> {
+pub async fn logout(
+    req: HttpRequest, 
+    pool: web::Data<PgPool>,
+    redis_blacklist: web::Data<RedisTokenBlacklist>,
+) -> Result<HttpResponse> {
     let current_user = get_current_user(&req)
         .ok_or_else(|| actix_web::error::ErrorUnauthorized("Not authenticated"))?;
 
@@ -586,12 +619,21 @@ pub async fn logout(req: HttpRequest, pool: web::Data<PgPool>) -> Result<HttpRes
                     eprintln!("Failed to logout session: {}", e);
                 }
 
-                // Blacklist token (get expiration from JWT)
+                // Blacklist token in Redis first (faster)
                 match AuthUtils::validate_token_without_expiry(token) {
                     Ok(claims) => {
                         let expires_at = chrono::DateTime::<chrono::Utc>::from_timestamp(claims.exp as i64, 0)
                             .unwrap_or_else(|| chrono::Utc::now());
                         
+                        let now = chrono::Utc::now();
+                        let ttl_seconds = (expires_at - now).num_seconds().max(0) as u64;
+                        
+                        // Blacklist in Redis (fast)
+                        if let Err(e) = redis_blacklist.blacklist_token(token, ttl_seconds).await {
+                            eprintln!("Failed to blacklist token in Redis: {}", e);
+                        }
+                        
+                        // Also blacklist in database (persistence)
                         if let Err(e) = TokenBlacklist::blacklist_token(
                             pool.get_ref(),
                             current_user.sub,
@@ -599,7 +641,7 @@ pub async fn logout(req: HttpRequest, pool: web::Data<PgPool>) -> Result<HttpRes
                             expires_at,
                             Some("User logout"),
                         ).await {
-                            eprintln!("Failed to blacklist token: {}", e);
+                            eprintln!("Failed to blacklist token in database: {}", e);
                         }
                     }
                     Err(e) => eprintln!("Failed to decode claims for blacklist: {:?}", e),
@@ -635,7 +677,7 @@ pub async fn me(
     // Fetch full user data from database to get totp_enabled status
     let user = sqlx::query_as!(
         User,
-        "SELECT id, username, email, password, role, wallet_address, email_verified, totp_enabled, recovery_codes, created_at, updated_at
+        "SELECT id, username, email, password, role, wallet_address, email_verified, totp_enabled, recovery_codes, is_banned, banned_until, last_login, created_at, updated_at
          FROM users WHERE id = $1",
         current_user.sub
     )
@@ -667,7 +709,7 @@ pub async fn register(
         User,
         "INSERT INTO users (username, email, password, role, email_verified)
          VALUES ($1, $2, $3, 'user', false)
-         RETURNING id, username, email, password, role, wallet_address, email_verified, totp_enabled, recovery_codes, created_at, updated_at",
+         RETURNING id, username, email, password, role, wallet_address, email_verified, totp_enabled, recovery_codes, is_banned, banned_until, last_login, created_at, updated_at",
         temp_username,
         register_data.email,
         hashed_password

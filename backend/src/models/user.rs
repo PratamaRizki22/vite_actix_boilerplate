@@ -16,6 +16,9 @@ pub struct User {
     #[serde(skip_serializing)]
     #[sqlx(default)]
     pub recovery_codes: Option<Vec<String>>,
+    pub is_banned: Option<bool>,
+    pub banned_until: Option<NaiveDateTime>,
+    pub last_login: Option<NaiveDateTime>,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
 }
@@ -39,7 +42,7 @@ pub struct UpdateUser {
     pub wallet_address: Option<Option<String>>, // Option<Option<>> to allow setting to NULL
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct UserResponse {
     pub id: i32,
     pub username: String,
@@ -49,6 +52,9 @@ pub struct UserResponse {
     pub email_verified: bool,
     pub two_factor_enabled: bool,
     pub has_password: bool,
+    pub is_banned: bool,
+    pub banned_until: Option<NaiveDateTime>,
+    pub last_login: Option<NaiveDateTime>,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
 }
@@ -69,6 +75,9 @@ impl From<User> for UserResponse {
             email_verified: user.email_verified,
             two_factor_enabled: user.totp_enabled.unwrap_or(false),
             has_password,
+            is_banned: user.is_banned.unwrap_or(false),
+            banned_until: user.banned_until,
+            last_login: user.last_login,
             created_at: user.created_at,
             updated_at: user.updated_at,
         }

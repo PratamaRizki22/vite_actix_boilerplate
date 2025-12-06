@@ -17,6 +17,21 @@ pub async fn toggle_like(
     let user_id = current_user.sub;
     let post_id = post_id_param.into_inner();
 
+    // Check if user is banned
+    let user_banned = sqlx::query_scalar::<_, bool>(
+        "SELECT COALESCE(is_banned, false) FROM users WHERE id = $1"
+    )
+    .bind(user_id)
+    .fetch_one(db.get_ref())
+    .await
+    .unwrap_or(false);
+
+    if user_banned {
+        return HttpResponse::Forbidden().json(serde_json::json!({
+            "error": "Your account is banned. You cannot like posts."
+        }));
+    }
+
     // Start transaction
     let mut tx = match db.begin().await {
         Ok(tx) => tx,
@@ -154,6 +169,21 @@ pub async fn create_comment(
 
     let user_id = current_user.sub;
     let post_id = post_id_param.into_inner();
+
+    // Check if user is banned
+    let user_banned = sqlx::query_scalar::<_, bool>(
+        "SELECT COALESCE(is_banned, false) FROM users WHERE id = $1"
+    )
+    .bind(user_id)
+    .fetch_one(db.get_ref())
+    .await
+    .unwrap_or(false);
+
+    if user_banned {
+        return HttpResponse::Forbidden().json(serde_json::json!({
+            "error": "Your account is banned. You cannot create comments."
+        }));
+    }
 
     if body.content.trim().is_empty() {
         return HttpResponse::BadRequest().json("Comment cannot be empty");

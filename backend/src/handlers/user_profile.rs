@@ -156,7 +156,7 @@ pub async fn update_own_profile(
     if let Some(wallet_address) = &user_data.wallet_address {
         sqlx::query!(
             "UPDATE users SET wallet_address = $1, updated_at = NOW() WHERE id = $2",
-            wallet_address.as_deref(),
+            wallet_address.as_ref().map(|s| s.as_str()),
             user_id
         )
         .execute(pool.get_ref())
@@ -178,7 +178,7 @@ pub async fn update_own_profile(
     // Get updated user
     let user = sqlx::query_as!(
         User,
-        "SELECT id, username, email, password, role, wallet_address, email_verified, totp_enabled, recovery_codes, created_at, updated_at
+        "SELECT id, username, email, password, role, wallet_address, email_verified, totp_enabled, recovery_codes, is_banned, banned_until, last_login, created_at, updated_at
          FROM users WHERE id = $1",
         user_id
     )

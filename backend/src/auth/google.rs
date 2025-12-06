@@ -75,19 +75,25 @@ pub async fn google_callback(
         .map(|n| n.clone())
         .unwrap_or_else(|| email.split('@').next().unwrap_or("User").to_string());
 
-    // Check if user exists, if not create them
+    // Check if user exists
     let user = match sqlx::query_as!(
         crate::models::user::User,
-        "SELECT id, username, email, password, role, wallet_address, email_verified, totp_enabled, recovery_codes, created_at, updated_at
+        "SELECT id, username, email, password, role, wallet_address, email_verified, totp_enabled, recovery_codes, is_banned, banned_until, last_login, created_at, updated_at
          FROM users WHERE email = $1",
         email
     )
     .fetch_optional(pool.get_ref())
     .await
     {
-        Ok(Some(user)) => user,
+        Ok(Some(user)) => {
+            // User already exists - this is a LOGIN
+            println!("Google OAuth: User {} already exists, logging in", user.email.as_ref().unwrap_or(&"unknown".to_string()));
+            user
+        }
         Ok(None) => {
-            // Create new user from Google account
+            // Create new user from Google account (REGISTRATION)
+            println!("Google OAuth: Creating new user for email {}", email);
+            
             // Username = name from Google profile (or email prefix as fallback)
             let username = google_claims.name
                 .clone()
@@ -97,7 +103,7 @@ pub async fn google_callback(
                 crate::models::user::User,
                 "INSERT INTO users (username, email, password, role, email_verified, created_at, updated_at)
                  VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
-                 RETURNING id, username, email, password, role, wallet_address, email_verified, totp_enabled, recovery_codes, created_at, updated_at",
+                 RETURNING id, username, email, password, role, wallet_address, email_verified, totp_enabled, recovery_codes, is_banned, banned_until, last_login, created_at, updated_at",
                 username,
                 email,
                 "google_oauth", // Placeholder password for OAuth users
@@ -197,6 +203,9 @@ pub async fn google_callback(
         email_verified: user.email_verified,
         two_factor_enabled: user.totp_enabled.unwrap_or(false),
         has_password: !user.password.is_empty(),
+        is_banned: user.is_banned.unwrap_or(false),
+        banned_until: user.banned_until,
+        last_login: user.last_login,
         created_at: user.created_at,
         updated_at: user.updated_at,
     };

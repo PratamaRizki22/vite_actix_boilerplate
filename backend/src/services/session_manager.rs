@@ -1,7 +1,8 @@
-use chrono::{DateTime, Utc, Duration, NaiveDateTime};
+use chrono::{Utc, Duration, NaiveDateTime};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use sha2::{Sha256, Digest};
+use crate::middleware::redis_session::{RedisSessionStore, RedisSessionData};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionInfo {
@@ -34,7 +35,7 @@ impl SessionManager {
         format!("{:x}", hasher.finalize())
     }
 
-    /// Create new session
+    /// Create new session with Redis caching
     pub async fn create_session(
         pool: &PgPool,
         data: CreateSessionData,
@@ -51,9 +52,9 @@ impl SessionManager {
                        last_activity, expires_at, created_at",
             data.user_id,
             token_hash,
-            data.device_name,
-            data.ip_address,
-            data.user_agent,
+            data.device_name.clone(),
+            data.ip_address.clone(),
+            data.user_agent.clone(),
             expires_at
         )
         .fetch_one(pool)
@@ -62,7 +63,51 @@ impl SessionManager {
         Ok(session)
     }
 
-    /// Verify session is still valid
+    /// Create new session with Redis (preferred method)
+    pub async fn create_session_with_redis(
+        pool: &PgPool,
+        redis: &RedisSessionStore,
+        data: CreateSessionData,
+    ) -> Result<SessionInfo, sqlx::Error> {
+        let token_hash = Self::hash_token(&data.token);
+        let expires_at = (Utc::now() + Duration::hours(24)).naive_utc();
+        let now = Utc::now();
+
+        // Create in database first
+        let session = sqlx::query_as!(
+            SessionInfo,
+            "INSERT INTO sessions 
+             (user_id, token_hash, device_name, ip_address, user_agent, last_activity, expires_at)
+             VALUES ($1, $2, $3, $4, $5, NOW(), $6)
+             RETURNING id, user_id, device_name, ip_address, user_agent, 
+                       last_activity, expires_at, created_at",
+            data.user_id,
+            token_hash,
+            data.device_name.clone(),
+            data.ip_address.clone(),
+            data.user_agent.clone(),
+            expires_at
+        )
+        .fetch_one(pool)
+        .await?;
+
+        // Store in Redis
+        let redis_session = RedisSessionData {
+            user_id: data.user_id,
+            device_name: data.device_name,
+            ip_address: data.ip_address,
+            user_agent: data.user_agent,
+            created_at: now.timestamp(),
+            last_activity: now.timestamp(),
+        };
+
+        let ttl_seconds = 24 * 3600; // 24 hours
+        let _ = redis.store_session(&token_hash, &redis_session, ttl_seconds).await;
+
+        Ok(session)
+    }
+
+    /// Verify session is still valid (database only)
     pub async fn verify_session(pool: &PgPool, token: &str) -> Result<Option<SessionInfo>, sqlx::Error> {
         let token_hash = Self::hash_token(token);
 
@@ -78,6 +123,38 @@ impl SessionManager {
         .await?;
 
         Ok(session)
+    }
+
+    /// Verify session with Redis (preferred method)
+    pub async fn verify_session_with_redis(
+        pool: &PgPool,
+        redis: &RedisSessionStore,
+        token: &str,
+    ) -> Result<Option<SessionInfo>, sqlx::Error> {
+        let token_hash = Self::hash_token(token);
+
+        // Try Redis first
+        if let Ok(Some(redis_session)) = redis.get_session(&token_hash).await {
+            // Update activity in Redis
+            let _ = redis.update_activity(&token_hash).await;
+
+            // Convert Redis session to SessionInfo
+            let session_info = SessionInfo {
+                id: 0, // Redis sessions don't have DB ID
+                user_id: redis_session.user_id,
+                device_name: redis_session.device_name,
+                ip_address: redis_session.ip_address,
+                user_agent: redis_session.user_agent,
+                last_activity: chrono::NaiveDateTime::from_timestamp_opt(redis_session.last_activity, 0).unwrap_or_default(),
+                expires_at: chrono::NaiveDateTime::from_timestamp_opt(redis_session.created_at + (24 * 3600), 0).unwrap_or_default(),
+                created_at: chrono::NaiveDateTime::from_timestamp_opt(redis_session.created_at, 0).unwrap_or_default(),
+            };
+
+            return Ok(Some(session_info));
+        }
+
+        // Fallback to database
+        Self::verify_session(pool, token).await
     }
 
     /// Update session last activity (keep alive)
@@ -205,5 +282,33 @@ impl SessionManager {
         .await?;
 
         Ok(result.rows_affected() > 0)
+    }
+
+    /// Logout session with Redis
+    pub async fn logout_with_redis(
+        pool: &PgPool,
+        redis: &RedisSessionStore,
+        token: &str,
+    ) -> Result<bool, sqlx::Error> {
+        let token_hash = Self::hash_token(token);
+
+        // Delete from Redis first
+        let _ = redis.delete_session(&token_hash).await;
+
+        // Then from database
+        Self::logout(pool, token).await
+    }
+
+    /// Invalidate all user sessions with Redis
+    pub async fn invalidate_all_sessions_with_redis(
+        pool: &PgPool,
+        redis: &RedisSessionStore,
+        user_id: i32,
+    ) -> Result<(), sqlx::Error> {
+        // Delete from Redis
+        let _ = redis.delete_user_sessions(user_id).await;
+
+        // Then from database
+        Self::invalidate_all_sessions(pool, user_id).await
     }
 }

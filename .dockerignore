@@ -1,0 +1,12 @@
+# Wallet Core Deployment Files
+
+target/
+node_modules/
+dist/
+.git/
+.gitignore
+*.md
+.env
+.env.local
+tests/
+*.log

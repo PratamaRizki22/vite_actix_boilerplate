@@ -2,6 +2,7 @@ use actix_web::{HttpResponse, Result, web};
 use sqlx::PgPool;
 
 use crate::middleware::auth::get_current_user;
+use crate::middleware::redis_cache::RedisCache;
 use crate::models::user::{CreateUser, UpdateUser, User, UserResponse};
 use crate::utils::auth::AuthUtils;
 use crate::utils::validation::{validate_username, validate_email, validate_password};
@@ -9,10 +10,9 @@ use crate::utils::validation::{validate_username, validate_email, validate_passw
 pub async fn get_users(pool: web::Data<PgPool>) -> Result<HttpResponse> {
     let users = sqlx::query_as!(
         User,
-        "SELECT DISTINCT u.id, u.username, u.email, u.password, u.role, u.wallet_address, u.email_verified, u.totp_enabled, u.recovery_codes, u.created_at, u.updated_at 
-         FROM users u 
-         INNER JOIN posts p ON u.id = p.user_id
-         ORDER BY u.created_at DESC"
+        "SELECT id, username, email, password, role, wallet_address, email_verified, totp_enabled, recovery_codes, is_banned, banned_until, last_login, created_at, updated_at 
+         FROM users
+         ORDER BY created_at DESC"
     )
     .fetch_all(pool.get_ref())
     .await
@@ -23,12 +23,21 @@ pub async fn get_users(pool: web::Data<PgPool>) -> Result<HttpResponse> {
     Ok(HttpResponse::Ok().json(user_responses))
 }
 
-pub async fn get_user(path: web::Path<i32>, pool: web::Data<PgPool>) -> Result<HttpResponse> {
+pub async fn get_user(
+    path: web::Path<i32>, 
+    pool: web::Data<PgPool>,
+    redis: web::Data<RedisCache>,
+) -> Result<HttpResponse> {
     let user_id = path.into_inner();
+
+    // Try to get from cache first
+    if let Ok(Some(cached_user)) = redis.get_user::<UserResponse>(user_id).await {
+        return Ok(HttpResponse::Ok().json(cached_user));
+    }
 
     let user = sqlx::query_as!(
         User,
-        "SELECT id, username, email, password, role, wallet_address, email_verified, totp_enabled, recovery_codes, created_at, updated_at FROM users WHERE id = $1",
+        "SELECT id, username, email, password, role, wallet_address, email_verified, totp_enabled, recovery_codes, is_banned, banned_until, last_login, created_at, updated_at FROM users WHERE id = $1",
         user_id
     )
     .fetch_optional(pool.get_ref())
@@ -36,7 +45,12 @@ pub async fn get_user(path: web::Path<i32>, pool: web::Data<PgPool>) -> Result<H
     .map_err(|_| actix_web::error::ErrorInternalServerError("Database error"))?;
 
     match user {
-        Some(user) => Ok(HttpResponse::Ok().json(UserResponse::from(user))),
+        Some(user) => {
+            let user_response = UserResponse::from(user);
+            // Cache the user data
+            let _ = redis.cache_user(user_id, &user_response).await;
+            Ok(HttpResponse::Ok().json(user_response))
+        },
         None => Ok(HttpResponse::NotFound().json(serde_json::json!({
             "error": "User not found"
         }))),
@@ -78,7 +92,7 @@ pub async fn create_user(
         User,
         "INSERT INTO users (username, email, password, role, email_verified)
          VALUES ($1, $2, $3, $4, false)
-         RETURNING id, username, email, password, role, wallet_address, email_verified, totp_enabled, recovery_codes, created_at, updated_at",
+         RETURNING id, username, email, password, role, wallet_address, email_verified, totp_enabled, recovery_codes, is_banned, banned_until, last_login, created_at, updated_at",
         user_data.username,
         user_data.email,
         hashed_password,
@@ -102,6 +116,7 @@ pub async fn update_user(
     req: actix_web::HttpRequest,
     path: web::Path<i32>,
     pool: web::Data<PgPool>,
+    redis: web::Data<RedisCache>,
     user_data: web::Json<UpdateUser>,
 ) -> Result<HttpResponse> {
     let user_id = path.into_inner();
@@ -114,6 +129,9 @@ pub async fn update_user(
             "error": "Insufficient permissions"
         })));
     }
+
+    // Invalidate user cache before update
+    let _ = redis.invalidate_user(user_id).await;
 
     // Update user with provided fields
     let mut has_updates = false;
@@ -186,7 +204,7 @@ pub async fn update_user(
     // Get updated user
     let user = sqlx::query_as!(
         User,
-        "SELECT id, username, email, password, role, wallet_address, email_verified, totp_enabled, recovery_codes, created_at, updated_at
+        "SELECT id, username, email, password, role, wallet_address, email_verified, totp_enabled, recovery_codes, is_banned, banned_until, last_login, created_at, updated_at
          FROM users WHERE id = $1",
         user_id
     )
@@ -206,6 +224,7 @@ pub async fn delete_user(
     req: actix_web::HttpRequest,
     path: web::Path<i32>,
     pool: web::Data<PgPool>,
+    redis: web::Data<RedisCache>,
 ) -> Result<HttpResponse> {
     let user_id = path.into_inner();
     let current_user = get_current_user(&req)
@@ -218,14 +237,22 @@ pub async fn delete_user(
         })));
     }
 
+    // Invalidate user cache before delete
+    let _ = redis.invalidate_user(user_id).await;
+
     let result = sqlx::query!("DELETE FROM users WHERE id = $1", user_id)
         .execute(pool.get_ref())
         .await
-        .map_err(|_| actix_web::error::ErrorInternalServerError("Database error"))?;
+        .map_err(|e| {
+            eprintln!("DELETE USER ERROR: Failed to delete user {}: {:?}", user_id, e);
+            actix_web::error::ErrorInternalServerError(format!("Database error: {}", e))
+        })?;
 
     if result.rows_affected() > 0 {
+        eprintln!("DELETE USER SUCCESS: User {} deleted", user_id);
         Ok(HttpResponse::NoContent().finish())
     } else {
+        eprintln!("DELETE USER: User {} not found", user_id);
         Ok(HttpResponse::NotFound().json(serde_json::json!({
             "error": "User not found"
         })))
@@ -266,7 +293,7 @@ pub async fn search_users(
     // Get paginated results with ranking
     let users = sqlx::query_as!(
         User,
-        "SELECT id, username, email, password, role, wallet_address, email_verified, totp_enabled, recovery_codes, created_at, updated_at 
+        "SELECT id, username, email, password, role, wallet_address, email_verified, totp_enabled, recovery_codes, is_banned, banned_until, last_login, created_at, updated_at 
          FROM users 
          WHERE to_tsvector('english', username) @@ to_tsquery('english', $1)
          ORDER BY ts_rank(to_tsvector('english', username), to_tsquery('english', $1)) DESC, username ASC
@@ -337,3 +364,95 @@ pub async fn search_users_public(
     })))
 }
 
+use serde::Deserialize;
+
+#[derive(Deserialize)]
+pub struct BanUserRequest {
+    pub is_banned: bool,
+    pub ban_days: Option<i64>, // Number of days to ban (None = permanent)
+}
+
+pub async fn ban_user(
+    req: actix_web::HttpRequest,
+    path: web::Path<i32>,
+    pool: web::Data<PgPool>,
+    redis: web::Data<RedisCache>,
+    ban_data: web::Json<BanUserRequest>,
+) -> Result<HttpResponse> {
+    let user_id = path.into_inner();
+    let current_user = get_current_user(&req)
+        .ok_or_else(|| actix_web::error::ErrorUnauthorized("Not authenticated"))?;
+
+    // Only admin can ban users
+    if current_user.role != "admin" {
+        return Ok(HttpResponse::Forbidden().json(serde_json::json!({
+            "error": "Only admins can ban users"
+        })));
+    }
+
+    // Get user to check if they're an admin
+    let target_user = sqlx::query!("SELECT role FROM users WHERE id = $1", user_id)
+        .fetch_optional(pool.get_ref())
+        .await
+        .map_err(|_| actix_web::error::ErrorInternalServerError("Database error"))?;
+
+    match target_user {
+        Some(user) => {
+            // Prevent banning admins
+            if user.role == "admin" {
+                return Ok(HttpResponse::Forbidden().json(serde_json::json!({
+                    "error": "Cannot ban admin users"
+                })));
+            }
+        }
+        None => {
+            return Ok(HttpResponse::NotFound().json(serde_json::json!({
+                "error": "User not found"
+            })));
+        }
+    }
+
+    // Invalidate user cache before update
+    let _ = redis.invalidate_user(user_id).await;
+
+    // Calculate banned_until timestamp
+    use chrono::{Utc, Duration};
+    let banned_until = if ban_data.is_banned {
+        ban_data.ban_days.map(|days| {
+            (Utc::now() + Duration::days(days)).naive_utc()
+        })
+    } else {
+        None
+    };
+
+    // Update is_banned status and banned_until
+    sqlx::query!(
+        "UPDATE users SET is_banned = $1, banned_until = $2, updated_at = NOW() WHERE id = $3",
+        ban_data.is_banned,
+        banned_until,
+        user_id
+    )
+    .execute(pool.get_ref())
+    .await
+    .map_err(|_| actix_web::error::ErrorInternalServerError("Database error"))?;
+
+    // Get updated user
+    let user = sqlx::query_as!(
+        User,
+        "SELECT id, username, email, password, role, wallet_address, email_verified, totp_enabled, recovery_codes, is_banned, banned_until, last_login, created_at, updated_at
+         FROM users WHERE id = $1",
+        user_id
+    )
+    .fetch_optional(pool.get_ref())
+    .await
+    .map_err(|_| actix_web::error::ErrorInternalServerError("Database error"))?;
+
+    match user {
+        Some(user) => {
+            Ok(HttpResponse::Ok().json(UserResponse::from(user)))
+        }
+        None => Ok(HttpResponse::NotFound().json(serde_json::json!({
+            "error": "User not found"
+        }))),
+    }
+}

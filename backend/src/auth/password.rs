@@ -30,7 +30,7 @@ pub async fn request_password_reset(
     // Check if user exists with this email
     let user = sqlx::query_as!(
         User,
-        "SELECT id, username, email, password, role, wallet_address, email_verified, totp_enabled, recovery_codes, created_at, updated_at
+        "SELECT id, username, email, password, role, wallet_address, email_verified, totp_enabled, recovery_codes, is_banned, banned_until, last_login, created_at, updated_at
          FROM users WHERE email = $1",
         reset_data.email
     )
@@ -110,7 +110,7 @@ pub async fn reset_password(
     // Find user by email
     let user = sqlx::query_as!(
         User,
-        "SELECT id, username, email, password, role, wallet_address, email_verified, totp_enabled, recovery_codes, created_at, updated_at
+        "SELECT id, username, email, password, role, wallet_address, email_verified, totp_enabled, recovery_codes, is_banned, banned_until, last_login, created_at, updated_at
          FROM users WHERE email = $1",
         email
     )

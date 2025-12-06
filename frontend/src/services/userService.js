@@ -45,6 +45,15 @@ const userService = {
     await api.delete(`/users/${id}`);
     return { success: true };
   },
+
+  // Ban/Unban user (admin only)
+  banUser: async (id, isBanned, banDays = null) => {
+    const response = await api.put(`/users/${id}/ban`, {
+      is_banned: isBanned,
+      ban_days: banDays
+    });
+    return response.data;
+  },
 };
 
 export default userService;

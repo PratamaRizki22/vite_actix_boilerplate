@@ -23,7 +23,7 @@ export const AuthProvider = ({ children }) => {
                 Authorization: `Bearer ${storedToken}`
               }
             });
-            
+
             if (response.ok) {
               const userData = await response.json();
               setUser(userData.user || userData);
@@ -78,7 +78,7 @@ export const AuthProvider = ({ children }) => {
 
     window.addEventListener('storage', handleStorageChange);
     window.addEventListener('auth-update', handleAuthUpdate);
-    
+
     return () => {
       window.removeEventListener('storage', handleStorageChange);
       window.removeEventListener('auth-update', handleAuthUpdate);
@@ -102,7 +102,6 @@ export const AuthProvider = ({ children }) => {
 
   const login = async (username, password) => {
     try {
-      setError(null);
       setLoading(true);
       const response = await authService.login(username, password);
 
@@ -121,8 +120,9 @@ export const AuthProvider = ({ children }) => {
       setUser(response.user);
       return response;
     } catch (err) {
-      const errorMsg = err.response?.data?.error || err.message;
-      setError(errorMsg);
+      // DO NOT setError here - let the page component handle it
+      // const errorMsg = err.response?.data?.error || err.message;
+      // setError(errorMsg);
       throw err;
     } finally {
       setLoading(false);

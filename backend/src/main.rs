@@ -14,6 +14,8 @@ use sqlx::postgres::PgPoolOptions;
 use crate::middleware::security_headers::SecurityHeadersMiddleware;
 use crate::middleware::redis_rate_limiter::RedisRateLimiter;
 use crate::middleware::redis_token_blacklist::RedisTokenBlacklist;
+use crate::middleware::redis_session::RedisSessionStore;
+use crate::middleware::redis_cache::RedisCache;
 use crate::services::token_blacklist::TokenBlacklistService;
 use crate::services::scheduled_tasks::start_scheduled_tasks;
 
@@ -46,6 +48,14 @@ async fn main() -> std::io::Result<()> {
         .await
         .expect("Failed to connect to Redis for token blacklist");
 
+    let redis_session_store = RedisSessionStore::new(&redis_url)
+        .await
+        .expect("Failed to connect to Redis for session storage");
+
+    let redis_cache = RedisCache::new(&redis_url)
+        .await
+        .expect("Failed to connect to Redis for caching");
+
     // Start background scheduled cleanup tasks
     start_scheduled_tasks(pool.clone());
 
@@ -76,9 +86,11 @@ async fn main() -> std::io::Result<()> {
             .app_data(actix_web::web::Data::new(TokenBlacklistService::new(pool.clone())))
             .app_data(actix_web::web::Data::new(redis_rate_limiter.clone()))
             .app_data(actix_web::web::Data::new(redis_token_blacklist.clone()))
+            .app_data(actix_web::web::Data::new(redis_session_store.clone()))
+            .app_data(actix_web::web::Data::new(redis_cache.clone()))
             .configure(crate::routes::api::config)
     })
-    .bind("127.0.0.1:8080")?
+    .bind(("0.0.0.0", 8080))?
     .run()
     .await
 }
